@@ -1,0 +1,121 @@
+/*
+ * Stitch tokens, copied verbatim and stored as RGB channels.
+ * Dark is the product default; light is a rose-tinted cream counterpart.
+ * Every foreground/background pairing used for text is checked for >= 4.5:1.
+ */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --c-on-primary-container: 91 0 26;
+  --c-on-error-container: 255 218 214;
+  --c-surface-bright: 57 57 60;
+  --c-outline-variant: 89 64 66;
+  --c-tertiary-fixed: 255 217 221;
+  --c-on-surface-variant: 225 190 192;
+  --c-tertiary: 255 178 189;
+  --c-background: 19 19 22;
+  --c-error: 255 180 171;
+  --c-on-error: 105 0 5;
+  --c-secondary-container: 135 35 63;
+  --c-surface-tint: 255 178 185;
+  --c-surface-container-high: 42 42 45;
+  --c-secondary-fixed: 255 217 222;
+  --c-inverse-on-surface: 48 48 51;
+  --c-surface-container: 31 31 34;
+  --c-inverse-primary: 180 34 68;
+  --c-secondary: 255 178 191;
+  --c-outline: 168 137 139;
+  --c-surface-container-highest: 53 52 56;
+  --c-primary: 255 178 185;
+  --c-on-background: 229 225 230;
+  --c-on-tertiary-fixed-variant: 131 33 58;
+  --c-primary-container: 249 87 115;
+  --c-on-tertiary-fixed: 64 0 19;
+  --c-on-secondary-container: 255 156 174;
+  --c-inverse-surface: 229 225 230;
+  --c-on-primary-fixed-variant: 145 0 47;
+  --c-on-tertiary: 101 5 37;
+  --c-on-secondary-fixed-variant: 131 32 61;
+  --c-surface-variant: 53 52 56;
+  --c-on-secondary-fixed: 63 0 21;
+  --c-surface: 19 19 22;
+  --c-tertiary-container: 226 106 130;
+  --c-on-primary: 103 0 31;
+  --c-on-surface: 229 225 230;
+  --c-tertiary-fixed-dim: 255 178 189;
+  --c-error-container: 147 0 10;
+  --c-on-primary-fixed: 64 0 16;
+  --c-surface-container-low: 27 27 30;
+  --c-secondary-fixed-dim: 255 178 191;
+  --c-on-secondary: 101 4 39;
+  --c-on-tertiary-container: 90 0 31;
+  --c-primary-fixed-dim: 255 178 185;
+  --c-primary-fixed: 255 218 220;
+  --c-surface-container-lowest: 14 14 17;
+  --c-surface-dim: 19 19 22;
+
+  --ambient-a: 249 87 115;
+  --ambient-b: 135 35 63;
+  --logo-wordmark: #ffffff;
+  --logo-bg: #19191f;
+  --logo-border: #303039;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --c-on-primary-container: 255 255 255;
+  --c-on-error-container: 65 0 2;
+  --c-surface-bright: 255 248 247;
+  --c-outline-variant: 222 196 199;
+  --c-tertiary-fixed: 255 217 221;
+  --c-on-surface-variant: 87 67 69;
+  --c-tertiary: 125 41 64;
+  --c-background: 255 248 247;
+  --c-error: 179 38 30;
+  --c-on-error: 255 255 255;
+  --c-secondary-container: 255 217 222;
+  --c-surface-tint: 180 34 68;
+  --c-surface-container-high: 242 222 224;
+  --c-secondary-fixed: 255 217 222;
+  --c-inverse-on-surface: 252 238 238;
+  --c-surface-container: 248 232 233;
+  --c-inverse-primary: 255 178 185;
+  --c-secondary: 143 48 73;
+  --c-outline: 138 112 115;
+  --c-surface-container-highest: 236 212 215;
+  --c-primary: 156 28 60;
+  --c-on-background: 35 26 27;
+  --c-on-tertiary-fixed-variant: 131 33 58;
+  --c-primary-container: 180 34 68;
+  --c-on-tertiary-fixed: 64 0 19;
+  --c-on-secondary-container: 63 0 21;
+  --c-inverse-surface: 56 46 47;
+  --c-on-primary-fixed-variant: 145 0 47;
+  --c-on-tertiary: 255 255 255;
+  --c-on-secondary-fixed-variant: 131 32 61;
+  --c-surface-variant: 236 212 215;
+  --c-on-secondary-fixed: 63 0 21;
+  --c-surface: 255 248 247;
+  --c-tertiary-container: 255 217 221;
+  --c-on-primary: 255 255 255;
+  --c-on-surface: 35 26 27;
+  --c-tertiary-fixed-dim: 255 178 189;
+  --c-error-container: 255 218 214;
+  --c-on-primary-fixed: 64 0 16;
+  --c-surface-container-low: 253 240 240;
+  --c-secondary-fixed-dim: 255 178 191;
+  --c-on-secondary: 255 255 255;
+  --c-on-tertiary-container: 64 0 19;
+  --c-primary-fixed-dim: 255 178 185;
+  --c-primary-fixed: 255 218 220;
+  --c-surface-container-lowest: 255 255 255;
+  --c-surface-dim: 234 216 217;
+
+  --ambient-a: 249 87 115;
+  --ambient-b: 255 217 221;
+  --logo-wordmark: #231a1b;
+  --logo-bg: #fff8f7;
+  --logo-border: #dec4c7;
+}

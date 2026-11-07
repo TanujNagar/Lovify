@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en" data-theme="dark" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#131316" />
+    <meta
+      name="description"
+      content="Lovify is a calm, premium music player for your own library, playlists and free music sources."
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Lovify" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link
+      rel="preload"
+      href="/fonts/plus-jakarta-sans-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/material-symbols-outlined.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <title>Lovify</title>
+    <style>
+      /* Instant, theme-aware app shell. React paints over it on first commit. */
+      #boot {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        display: flex;
+        flex-direction: column;
+        padding: 0 20px;
+        background: #131316;
+        color: #e5e1e6;
+        font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+        --boot-logo-bg: #19191f;
+        --boot-logo-border: #303039;
+      }
+      html[data-theme='light'] #boot {
+        background: #fff8f7;
+        color: #231a1b;
+        --boot-logo-bg: #fff8f7;
+        --boot-logo-border: #dec4c7;
+      }
+      #boot .boot-top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 64px;
+      }
+      #boot .boot-word {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      #boot .boot-block {
+        background: rgba(255, 255, 255, 0.07);
+        border-radius: 14px;
+      }
+      html[data-theme='light'] #boot .boot-block {
+        background: rgba(35, 26, 27, 0.07);
+      }
+      #boot .boot-heading {
+        width: 58%;
+        height: 30px;
+        margin-top: 10px;
+        border-radius: 8px;
+      }
+      #boot .boot-sub {
+        width: 36%;
+        height: 14px;
+        margin-top: 12px;
+        border-radius: 7px;
+      }
+      #boot .boot-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 28px;
+      }
+      #boot .boot-tile {
+        height: 56px;
+        border-radius: 12px;
+      }
+    </style>
+    <script>
+      // Apply the saved theme before first paint to avoid a flash.
+      (function () {
+        try {
+          var stored = localStorage.getItem('lovify-theme')
+          var theme = stored === 'light' ? 'light' : 'dark'
+          var root = document.documentElement
+          root.setAttribute('data-theme', theme)
+          root.classList.toggle('dark', theme === 'dark')
+          var meta = document.querySelector('meta[name="theme-color"]')
+          if (meta) meta.setAttribute('content', theme === 'light' ? '#fff8f7' : '#131316')
+        } catch (error) {
+          /* Storage can be unavailable in private modes; dark stays the default. */
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <a
+      href="#main-content"
+      class="sr-only z-[100] rounded-full bg-primary-container px-4 py-3 text-on-primary-container focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+    >
+      Skip to content
+    </a>
+    <div id="boot" aria-hidden="true">
+      <div class="boot-top">
+        <svg width="32" height="32" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="boot-grad" gradientUnits="userSpaceOnUse" x1="12" y1="12" x2="32" y2="31">
+              <stop offset="0%" stop-color="#F27691" />
+              <stop offset="100%" stop-color="#E94B68" />
+            </linearGradient>
+          </defs>
+          <g transform="translate(6, 6)">
+            <rect width="36" height="36" rx="10" fill="var(--boot-logo-bg)" stroke="var(--boot-logo-border)" stroke-width="1.2" />
+            <path d="M12 24V18" stroke="url(#boot-grad)" stroke-width="2.5" stroke-linecap="round" />
+            <path d="M16 27V15" stroke="url(#boot-grad)" stroke-width="2.5" stroke-linecap="round" />
+            <path d="M20 29V13" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" />
+            <path d="M24 27V15" stroke="url(#boot-grad)" stroke-width="2.5" stroke-linecap="round" />
+            <path d="M28 24V18" stroke="url(#boot-grad)" stroke-width="2.5" stroke-linecap="round" />
+            <circle cx="20" cy="10" r="1.5" fill="#F27691" />
+          </g>
+        </svg>
+        <span class="boot-word">Lovify</span>
+      </div>
+      <div class="boot-block boot-heading"></div>
+      <div class="boot-block boot-sub"></div>
+      <div class="boot-grid">
+        <div class="boot-block boot-tile"></div>
+        <div class="boot-block boot-tile"></div>
+        <div class="boot-block boot-tile"></div>
+        <div class="boot-block boot-tile"></div>
+        <div class="boot-block boot-tile"></div>
+        <div class="boot-block boot-tile"></div>
+      </div>
+    </div>
+    <div id="root"></div>
+    <noscript>
+      <div style="padding: 2rem; font-family: sans-serif; color: #e5e1e6; background: #131316">
+        Lovify needs JavaScript to play music. Please enable it and reload.
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

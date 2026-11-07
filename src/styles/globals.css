@@ -1,0 +1,214 @@
+@import './tokens.css';
+@import './fonts.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-outline-variant/40;
+  }
+
+  html {
+    background-color: rgb(var(--c-background));
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply min-h-[100dvh] bg-surface font-sans text-on-surface antialiased;
+    margin: 0;
+    overscroll-behavior-y: none;
+  }
+
+  #root {
+    @apply min-h-[100dvh];
+  }
+
+  ::selection {
+    @apply bg-primary-container text-on-primary-container;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-primary));
+    outline-offset: 3px;
+    border-radius: 0.375rem;
+  }
+
+  button,
+  a,
+  input,
+  textarea,
+  select,
+  [role='button'] {
+    touch-action: manipulation;
+  }
+
+  button:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  p {
+    margin: 0;
+  }
+
+  input[type='search']::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    display: none;
+  }
+}
+
+@layer components {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .tap-target {
+    position: relative;
+  }
+
+  .tap-target::after {
+    content: '';
+    position: absolute;
+    inset: 50% auto auto 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .screen-pad {
+    @apply px-margin;
+  }
+
+  .hairline {
+    box-shadow: inset 0 1px 0 rgb(var(--c-on-surface) / 0.06);
+  }
+
+  /* Soft radial glows instead of large blur filters: same look, far cheaper
+     to paint on low-end phones. */
+  .ambient-a {
+    background: radial-gradient(
+      circle at 50% 50%,
+      rgb(var(--ambient-a) / 0.16) 0%,
+      rgb(var(--ambient-a) / 0.06) 42%,
+      transparent 72%
+    );
+  }
+
+  .ambient-b {
+    background: radial-gradient(
+      circle at 50% 50%,
+      rgb(var(--ambient-b) / 0.22) 0%,
+      rgb(var(--ambient-b) / 0.08) 45%,
+      transparent 74%
+    );
+  }
+
+  .glass {
+    background-color: rgb(var(--c-surface-container) / 0.88);
+    backdrop-filter: blur(20px);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@layer utilities {
+  /* Skip layout and paint for sections that are still below the fold. */
+  .defer-render {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 320px;
+  }
+
+  .safe-bottom {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+  }
+
+  .range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 24px;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: linear-gradient(
+      to right,
+      rgb(var(--c-primary-container)) 0%,
+      rgb(var(--c-primary-container)) var(--range-progress, 40%),
+      rgb(var(--c-surface-container-highest)) var(--range-progress, 40%),
+      rgb(var(--c-surface-container-highest)) 100%
+    );
+  }
+
+  .range::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: rgb(var(--c-surface-container-highest));
+  }
+
+  .range::-moz-range-progress {
+    height: 4px;
+    border-radius: 9999px;
+    background: rgb(var(--c-primary-container));
+  }
+
+  .range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border-radius: 9999px;
+    background: rgb(var(--c-primary-container));
+    box-shadow: 0 0 0 4px rgb(var(--c-surface));
+    transition: transform 120ms ease;
+  }
+
+  .range::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border: none;
+    border-radius: 9999px;
+    background: rgb(var(--c-primary-container));
+    box-shadow: 0 0 0 4px rgb(var(--c-surface));
+  }
+
+  .range:active::-webkit-slider-thumb {
+    transform: scale(1.15);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

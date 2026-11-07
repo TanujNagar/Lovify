@@ -1,0 +1,13 @@
+node_modules
+.next
+.env*
+!.env.example
+dist
+screenshots
+playwright-report
+test-results
+trace.json
+lighthouse-report*.json
+lighthouse-settings.json
+*.tsbuildinfo
+build-debug.log
