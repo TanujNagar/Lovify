@@ -62,11 +62,22 @@ export function ExploreScreen() {
 
   return (
     <div className="mx-auto w-full max-w-4xl px-margin pb-10">
-      <div className="pb-4 pt-2">
-        <h1 className="font-headline-lg text-headline-lg tracking-tight text-on-surface">Explore</h1>
-        <p className="font-body-md text-body-md text-on-surface-variant">
-          New releases, moods, and mixes that drift with you.
-        </p>
+      <div className="flex items-start justify-between gap-3 pb-4 pt-2">
+        <div>
+          <h1 className="font-headline-lg text-headline-lg tracking-tight text-on-surface">Explore</h1>
+          <p className="font-body-md text-body-md text-on-surface-variant">
+            New releases, moods, and mixes that drift with you.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load(true)}
+          disabled={loading}
+          aria-label="Refresh Explore"
+          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-surface-container text-on-surface-variant transition-colors hover:text-primary disabled:opacity-50"
+        >
+          <Icon name="refresh" className={loading ? 'animate-spin' : undefined} />
+        </button>
       </div>
 
       <section className="relative mb-7 overflow-hidden rounded-2xl bg-gradient-to-br from-secondary-container via-surface-container-high to-surface-container-lowest p-5 shadow-[0_16px_48px_rgba(0,0,0,0.35)]">

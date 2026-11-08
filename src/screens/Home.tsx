@@ -2,25 +2,22 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from '@/components/brand/Icon'
 import { AlbumCard } from '@/components/media/AlbumCard'
+import { MixCard } from '@/components/media/MixCard'
 import { QuickTile } from '@/components/media/QuickTile'
 import { TrackRow } from '@/components/media/TrackRow'
 import { Chip } from '@/components/ui/Chip'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { homeFilters } from '@/data/editorial'
+import { getAllCachedTracks, getPlayHistory } from '@/lib/db'
 import { greetingForHour } from '@/lib/format'
+import { buildRecommendations } from '@/lib/recommendations'
 import { useCatalogStore } from '@/stores/catalog'
+import { useDownloadsStore } from '@/stores/downloads'
 import { useLibraryStore } from '@/stores/library'
 import { usePlayerStore } from '@/stores/player'
 import { useSourcesStore } from '@/stores/sources'
 import { useUiStore } from '@/stores/ui'
-import type { CollectionItem, Track } from '@/types/music'
-
-const labels = [
-  { label: 'Mix 01', dot: 'bg-primary-container' },
-  { label: 'Deep Vibe', dot: 'bg-tertiary' },
-  { label: 'Weekly', dot: 'bg-secondary' },
-  { label: 'Radar', dot: 'bg-primary' },
-]
+import type { CollectionItem, HistoryEntry, Track } from '@/types/music'
 
 const filterTerms: Record<string, string[]> = {
   night: ['night', 'chill', 'ambient', 'lofi', 'lo-fi', 'bedroom'],
@@ -57,62 +54,78 @@ export function HomeScreen() {
   const playlists = useLibraryStore((state) => state.playlists)
   const likedIds = useLibraryStore((state) => state.likedIds)
   const youtube = useSourcesStore((state) => state.youtube)
+  const downloadedTracks = useDownloadsStore((state) => state.tracks)
+
+  const [playHistory, setPlayHistory] = useState<HistoryEntry[]>([])
+  const [cachedTracks, setCachedTracks] = useState<Track[]>([])
 
   useEffect(() => {
     void load()
   }, [load])
 
+  const historyVersion = history[0]?.playedAt ?? 0
+
+  useEffect(() => {
+    let active = true
+    void Promise.all([getPlayHistory(600), getAllCachedTracks(300)])
+      .then(([nextHistory, nextTracks]) => {
+        if (!active) return
+        setPlayHistory(nextHistory)
+        setCachedTracks(nextTracks)
+      })
+      .catch(() => {
+        if (!active) return
+        setPlayHistory([])
+        setCachedTracks([])
+      })
+    return () => {
+      active = false
+    }
+  }, [history.length, historyVersion, likedIds, playlists])
+
   const greeting = greetingForHour(new Date().getHours())
   const featured = useMemo(() => albums.slice(0, 8).map(albumItem), [albums])
 
-  const quickAccess = useMemo<CollectionItem[]>(() => {
-    const items: CollectionItem[] = []
-    const liked = playlists.find((playlist) => playlist.system === 'liked')
-    if (liked) {
-      items.push({
-        id: liked.id,
-        title: 'Liked Songs',
-        subtitle: `${likedIds.length} tracks`,
-        kind: 'playlist',
-        href: `/playlist/${liked.id}`,
-        artwork: history[0]?.track.artwork,
-      })
-    }
+  const candidates = useMemo(() => {
+    const byId = new Map<string, Track>()
+    for (const track of [...cachedTracks, ...trending]) byId.set(track.id, track)
+    return Array.from(byId.values())
+  }, [cachedTracks, trending])
 
-    for (const entry of history.slice(0, 3)) {
-      items.push({
+  const downloadedIds = useMemo(
+    () => downloadedTracks.map((track) => track.id),
+    [downloadedTracks],
+  )
+
+  const signals = useMemo(
+    () => ({
+      history: playHistory.length ? playHistory : history,
+      likedTracks: candidates.filter((track) => likedIds.includes(track.id)),
+      likedIds,
+      playlists,
+      downloadedIds,
+      trendingIds: trending.map((track) => track.id),
+    }),
+    [candidates, downloadedIds, history, likedIds, playHistory, playlists, trending],
+  )
+
+  const recommendations = useMemo(
+    () => buildRecommendations(candidates, signals, 12),
+    [candidates, signals],
+  )
+
+  const quickAccess = useMemo<CollectionItem[]>(
+    () =>
+      recommendations.jumpBackIn.map((entry) => ({
         id: entry.track.id,
         title: entry.track.title,
-        subtitle: entry.track.artist,
+        subtitle: `${entry.track.artist} · ${entry.track.album}`,
         kind: 'track',
         href: `/album/${entry.track.albumId}`,
         artwork: entry.track.artwork,
-      })
-    }
-
-    for (const track of trending.slice(0, 3)) {
-      if (items.some((item) => item.id === track.id)) continue
-      items.push({
-        id: track.id,
-        title: track.title,
-        subtitle: track.artist,
-        kind: 'track',
-        href: `/album/${track.albumId}`,
-        artwork: track.artwork,
-      })
-    }
-
-    for (const album of albums.slice(0, 2)) {
-      items.push(albumItem(album))
-    }
-
-    const seen = new Set<string>()
-    return items.filter((item) => {
-      if (seen.has(item.id)) return false
-      seen.add(item.id)
-      return true
-    }).slice(0, 6)
-  }, [albums, history, likedIds.length, playlists, trending])
+      })),
+    [recommendations.jumpBackIn],
+  )
 
   const recent = useMemo(
     () =>
@@ -127,22 +140,27 @@ export function HomeScreen() {
     [history],
   )
 
+  const baseRecommendations = useMemo(
+    () => recommendations.tracksYouMightLove.map((entry) => entry.track),
+    [recommendations.tracksYouMightLove],
+  )
+
   const recommended = useMemo<Track[]>(() => {
     const terms = filterTerms[filter]
-    if (!terms) return trending
-    const matches = trending.filter((track) => {
+    if (!terms || !baseRecommendations.length) return baseRecommendations
+    const matches = baseRecommendations.filter((track) => {
       const haystack = `${track.title} ${track.album} ${track.genre ?? ''}`.toLowerCase()
       return terms.some((term) => haystack.includes(term))
     })
-    return matches.length ? matches : trending
-  }, [filter, trending])
+    return matches.length ? matches : baseRecommendations
+  }, [baseRecommendations, filter])
 
   const shuffle = () => {
-    if (!trending.length) {
+    if (!recommended.length) {
       showToast('Free music is still loading. Try again in a moment.')
       return
     }
-    const shuffled = [...trending].sort(() => Math.random() - 0.5)
+    const shuffled = [...recommended].sort(() => Math.random() - 0.5)
     playQueue(shuffled, 0, { type: 'radio', label: 'Shuffled for you' })
     showToast('Shuffling your recommendations.')
   }
@@ -221,9 +239,35 @@ export function HomeScreen() {
 
         {quickAccess.length > 0 && (
           <section className="px-margin pb-6">
+            <SectionHeader
+              title="Jump back in"
+              subtitle="Pick up where your listening left off"
+            />
             <div className="grid grid-cols-2 gap-2.5">
               {quickAccess.map((item) => (
                 <QuickTile key={item.id} item={item} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {recommendations.madeForYou.length > 0 && (
+          <section className="defer-render pb-7">
+            <div className="px-margin">
+              <SectionHeader
+                title="Made for you"
+                subtitle={
+                  playHistory.length || history.length
+                    ? 'Local mixes shaped by what you actually play'
+                    : 'Trending collections from free sources'
+                }
+                actionLabel="See all"
+                actionTo="/explore"
+              />
+            </div>
+            <div className="flex gap-4 overflow-x-auto px-margin pb-2 no-scrollbar">
+              {recommendations.madeForYou.map((mix) => (
+                <MixCard key={mix.id} mix={mix} />
               ))}
             </div>
           </section>
@@ -233,20 +277,15 @@ export function HomeScreen() {
           <section className="defer-render pb-7">
             <div className="px-margin">
               <SectionHeader
-                title="Made for you"
-                subtitle="Trending collections from free sources"
-                actionLabel="See all"
+                title="Fresh collections"
+                subtitle="New releases from free sources"
+                actionLabel="Explore"
                 actionTo="/explore"
               />
             </div>
             <div className="flex gap-4 overflow-x-auto px-margin pb-2 no-scrollbar">
-              {featured.map((item, index) => (
-                <AlbumCard
-                  key={item.id}
-                  item={item}
-                  label={labels[index]?.label}
-                  dotClass={labels[index]?.dot}
-                />
+              {featured.map((item) => (
+                <AlbumCard key={item.id} item={item} label="New" />
               ))}
             </div>
           </section>
@@ -277,7 +316,11 @@ export function HomeScreen() {
           <section className="defer-render px-margin pb-10">
             <SectionHeader
               title={filter === 'all' || filter === 'music' ? 'Tracks you might love' : 'For this mood'}
-              subtitle="Picked from free music sources"
+              subtitle={
+                playHistory.length || history.length
+                  ? 'Picked by your local listening signals'
+                  : 'Picked from free music sources'
+              }
             >
               <button
                 type="button"
