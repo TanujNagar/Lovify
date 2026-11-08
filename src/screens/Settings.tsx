@@ -1,15 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Icon } from '@/components/brand/Icon'
 import { Toggle } from '@/components/ui/Toggle'
 import { formatUnits } from '@/lib/cache'
 import {
+  backupFileName,
+  exportBackup as createBackupFile,
+  importBackup as restoreBackup,
+} from '@/lib/backup'
+import {
   clearHistory as clearStoredHistory,
   clearSearchCache,
   getSetting,
-  getStorageSummary,
   removeSetting,
   setSetting,
 } from '@/lib/db'
+import { formatBytes } from '@/lib/downloads'
 import {
   JAMENDO_CLIENT_ID_HELP_URL,
   JAMENDO_CLIENT_ID_SETTING,
@@ -24,19 +30,13 @@ import {
   validateYouTubeKey,
   type KeyStatus,
 } from '@/lib/youtube'
+import { useDownloadsStore } from '@/stores/downloads'
 import { useLibraryStore } from '@/stores/library'
 import { useSourcesStore } from '@/stores/sources'
 import { useThemeStore } from '@/stores/theme'
 import { useUiStore } from '@/stores/ui'
 
 const envJamendoId = Boolean(import.meta.env.VITE_JAMENDO_CLIENT_ID)
-
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`
-}
 
 function SourceRow({
   name,
@@ -98,12 +98,20 @@ export function SettingsScreen() {
   const [savingJamendo, setSavingJamendo] = useState(false)
   const [jamendoMessage, setJamendoMessage] = useState('Loading Jamendo client id…')
 
-  const [storage, setStorage] = useState({ downloads: 0, bytes: 0 })
+  const downloadStorage = useDownloadsStore((state) => state.storage)
+  const loadDownloads = useDownloadsStore((state) => state.load)
+  const refreshLibrary = useLibraryStore((state) => state.refresh)
   const [clearing, setClearing] = useState<'search' | 'history' | null>(null)
+  const [backupBusy, setBackupBusy] = useState<'export' | 'import' | null>(null)
+  const [backupMessage, setBackupMessage] = useState(
+    'Backups include playlists, likes, history and settings. Provider keys and offline audio stay out.',
+  )
+  const backupInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let active = true
     void refreshSources()
+    void loadDownloads()
     void getYouTubeKey().then((key) => {
       if (!active) return
       if (key) {
@@ -128,13 +136,10 @@ export function SettingsScreen() {
         setJamendoMessage('No Jamendo client id saved. Audius works without any key.')
       }
     })
-    void getStorageSummary().then((summary) => {
-      if (active) setStorage(summary)
-    })
     return () => {
       active = false
     }
-  }, [refreshSources])
+  }, [loadDownloads, refreshSources])
 
   const saveAndTest = async () => {
     const candidate = draftKey.trim() || savedKey
@@ -223,6 +228,50 @@ export function SettingsScreen() {
       showToast('Listening history cleared.')
     } finally {
       setClearing(null)
+    }
+  }
+
+  const exportLibrary = async () => {
+    setBackupBusy('export')
+    try {
+      const text = await createBackupFile()
+      const blob = new Blob([text], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = backupFileName()
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setBackupMessage('Backup downloaded as a JSON file on this device.')
+      showToast('Backup downloaded.')
+    } catch {
+      setBackupMessage('Could not create the backup file. Check that storage is available.')
+    } finally {
+      setBackupBusy(null)
+    }
+  }
+
+  const importLibrary = async (file: File | undefined) => {
+    if (!file) return
+    setBackupBusy('import')
+    try {
+      const result = await restoreBackup(await file.text())
+      await refreshLibrary()
+      await loadDownloads()
+      await refreshAfterJamendoChange()
+      await refreshAfterKeyChange()
+      setBackupMessage(
+        `Restored ${result.playlists} playlists, ${result.likes} likes and ${result.plays} plays.`,
+      )
+      showToast('Backup restored. Your library is back.')
+    } catch (error) {
+      setBackupMessage(
+        error instanceof Error ? error.message : 'That backup could not be restored.',
+      )
+    } finally {
+      setBackupBusy(null)
     }
   }
 
@@ -532,8 +581,57 @@ export function SettingsScreen() {
             </p>
           </div>
           <span className="whitespace-nowrap font-label-md text-label-md text-on-surface-variant">
-            {storage.downloads} downloads · {formatBytes(storage.bytes)}
+            {downloadStorage.downloads} downloads · {formatBytes(downloadStorage.bytes)}
           </span>
+        </div>
+
+        <div className="mt-2 rounded-lg bg-surface-container-low p-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="font-title-md text-title-md text-on-surface">Offline audio storage</p>
+            <p className="font-caption text-caption text-on-surface-variant">
+              {downloadStorage.quota > 0
+                ? `${formatBytes(downloadStorage.usage)} / ${formatBytes(downloadStorage.quota)}`
+                : formatBytes(downloadStorage.bytes)}
+            </p>
+          </div>
+          <div
+            className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-container-highest"
+            role="progressbar"
+            aria-label="Browser storage used"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={
+              downloadStorage.quota > 0
+                ? Math.round((downloadStorage.usage / downloadStorage.quota) * 100)
+                : 0
+            }
+          >
+            <div
+              className="h-full rounded-full bg-primary-container"
+              style={{
+                width: `${
+                  downloadStorage.quota > 0
+                    ? Math.min(100, Math.max(2, (downloadStorage.usage / downloadStorage.quota) * 100))
+                    : downloadStorage.bytes > 0
+                      ? 2
+                      : 0
+                }%`,
+              }}
+            />
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <p className="font-caption text-caption leading-relaxed text-on-surface-variant">
+              {downloadStorage.persisted
+                ? 'The browser marked Lovify storage as persistent.'
+                : 'Free-source downloads live in Cache Storage. YouTube is never downloaded.'}
+            </p>
+            <Link
+              to="/library?filter=downloaded"
+              className="flex min-h-11 flex-shrink-0 items-center font-label-md text-label-md text-primary"
+            >
+              Manage
+            </Link>
+          </div>
         </div>
 
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -557,9 +655,59 @@ export function SettingsScreen() {
           </button>
         </div>
 
+        <div className="mt-2 rounded-lg bg-surface-container-low p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="font-title-md text-title-md text-on-surface">Backup</p>
+              <p className="mt-0.5 font-body-md text-body-md text-on-surface-variant">
+                Save your library as a JSON file and restore it on any device.
+              </p>
+            </div>
+            <Icon name="cloud_sync" size="sm" className="mt-1 flex-shrink-0 text-primary" />
+          </div>
+          <input
+            ref={backupInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              void importLibrary(file)
+            }}
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void exportLibrary()}
+              disabled={backupBusy !== null}
+              className="flex min-h-11 items-center gap-2 rounded-full bg-primary-container px-4 font-label-lg text-label-lg text-on-primary-container disabled:opacity-50"
+            >
+              <Icon name="download" size="sm" />
+              {backupBusy === 'export' ? 'Preparing…' : 'Export backup'}
+            </button>
+            <button
+              type="button"
+              onClick={() => backupInputRef.current?.click()}
+              disabled={backupBusy !== null}
+              className="flex min-h-11 items-center gap-2 rounded-full bg-surface-container-high px-4 font-label-lg text-label-lg text-on-surface-variant transition-colors hover:text-on-surface disabled:opacity-50"
+            >
+              <Icon name="upload" size="sm" />
+              {backupBusy === 'import' ? 'Restoring…' : 'Import backup'}
+            </button>
+          </div>
+          <p
+            role="status"
+            aria-live="polite"
+            className="mt-2 font-caption text-caption leading-relaxed text-on-surface-variant"
+          >
+            {backupMessage}
+          </p>
+        </div>
+
         <p className="mt-2 font-caption text-caption leading-relaxed text-on-surface-variant">
-          Lovify is local-first. Playlists, likes and history never leave this device. Backup
-          export and import arrive in Phase 3.
+          Importing replaces the library on this device. API keys are never exported, and
+          downloaded audio stays in Cache Storage rather than inside the file.
         </p>
       </section>
 
@@ -605,7 +753,7 @@ export function SettingsScreen() {
         <dl className="space-y-1 font-body-md text-body-md">
           <div className="flex items-center justify-between">
             <dt className="text-on-surface-variant">Version</dt>
-            <dd className="text-on-surface">0.2.0 · Phase 2</dd>
+            <dd className="text-on-surface">0.3.0 · Phase 3</dd>
           </div>
           <div className="flex items-center justify-between">
             <dt className="text-on-surface-variant">Theme</dt>
