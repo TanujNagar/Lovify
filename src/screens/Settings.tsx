@@ -262,6 +262,15 @@ export function SettingsScreen() {
       await loadDownloads()
       await refreshAfterJamendoChange()
       await refreshAfterKeyChange()
+      // Backups never contain provider keys, and the restore cleared the local
+      // settings table, so reflect that in the key cards immediately.
+      setSavedKey(null)
+      setDraftKey('')
+      setKeyStatus('empty')
+      setKeyMessage('No key saved. Add your own or use the shared route.')
+      setSavedJamendo(null)
+      setJamendoDraft('')
+      setJamendoMessage('No Jamendo client id saved. Audius works without any key.')
       setBackupMessage(
         `Restored ${result.playlists} playlists, ${result.likes} likes and ${result.plays} plays.`,
       )
