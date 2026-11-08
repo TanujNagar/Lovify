@@ -13,6 +13,7 @@ import { ProviderError } from '@/lib/providers/types'
 import { useLibraryStore } from '@/stores/library'
 import { usePlayerStore } from '@/stores/player'
 import { useUiStore } from '@/stores/ui'
+import { createShareUrl } from '@/lib/share'
 import type { Album, Artist, Playlist, Track } from '@/types/music'
 
 type DetailKind = 'playlist' | 'album' | 'artist'
@@ -209,12 +210,13 @@ export function CollectionDetailScreen() {
   }
 
   const share = async () => {
+    const url = createShareUrl(items, title, description)
     try {
       if (navigator.share) {
-        await navigator.share({ title: `${title} · Lovify`, url: window.location.href })
+        await navigator.share({ title: `${title} · Lovify`, url })
       } else {
-        await navigator.clipboard.writeText(window.location.href)
-        showToast('Link copied.')
+        await navigator.clipboard.writeText(url)
+        showToast('Shareable link copied.')
       }
     } catch {
       showToast('Sharing is not available in this browser.')

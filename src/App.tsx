@@ -8,6 +8,8 @@ import { HomeScreen } from '@/screens/Home'
 import { useDownloadsStore } from '@/stores/downloads'
 import { useLibraryStore } from '@/stores/library'
 import { useSourcesStore } from '@/stores/sources'
+import { useSharedPlaylistRestore } from '@/hooks/useSharedPlaylistRestore'
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 
 const CollectionDetailScreen = lazy(() =>
   import('@/screens/CollectionDetail').then((module) => ({
@@ -82,6 +84,7 @@ function RouteFallback() {
 
 function AppEffects() {
   const location = useLocation()
+  useSharedPlaylistRestore()
 
   useEffect(() => {
     let active = true
@@ -137,26 +140,28 @@ export default function App() {
         <TrackActionsSheet />
       </Suspense>
       <Toaster />
-      <Suspense fallback={<RouteFallback />}>
-        <Routes>
-          <Route path="/player" element={<PlayerScreen />} />
-          <Route path="/lyrics" element={<LyricsScreen />} />
-          <Route element={<AppShell />}>
-            <Route path="/" element={<HomeScreen />} />
-            <Route path="/search" element={<SearchScreen />} />
-            <Route path="/explore" element={<ExploreScreen />} />
-            <Route path="/library" element={<LibraryScreen />} />
-            <Route path="/profile" element={<ProfileScreen />} />
-            <Route path="/settings" element={<SettingsScreen />} />
-            <Route path="/queue" element={<QueueScreen />} />
-            <Route path="/playlist/:id" element={<CollectionDetailScreen />} />
-            <Route path="/album/:id" element={<CollectionDetailScreen />} />
-            <Route path="/artist/:id" element={<CollectionDetailScreen />} />
-            <Route path="/offline" element={<OfflineScreen />} />
-            <Route path="*" element={<NotFoundScreen />} />
-          </Route>
-        </Routes>
-      </Suspense>
+      <ErrorBoundary>
+        <Suspense fallback={<RouteFallback />}>
+          <Routes>
+            <Route path="/player" element={<PlayerScreen />} />
+            <Route path="/lyrics" element={<LyricsScreen />} />
+            <Route element={<AppShell />}>
+              <Route path="/" element={<HomeScreen />} />
+              <Route path="/search" element={<SearchScreen />} />
+              <Route path="/explore" element={<ExploreScreen />} />
+              <Route path="/library" element={<LibraryScreen />} />
+              <Route path="/profile" element={<ProfileScreen />} />
+              <Route path="/settings" element={<SettingsScreen />} />
+              <Route path="/queue" element={<QueueScreen />} />
+              <Route path="/playlist/:id" element={<CollectionDetailScreen />} />
+              <Route path="/album/:id" element={<CollectionDetailScreen />} />
+              <Route path="/artist/:id" element={<CollectionDetailScreen />} />
+              <Route path="/offline" element={<OfflineScreen />} />
+              <Route path="*" element={<NotFoundScreen />} />
+            </Route>
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
     </BrowserRouter>
   )
 }
