@@ -2,20 +2,39 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TrackRow } from '@/components/media/TrackRow'
-import { tracks } from '@/data/mock'
 import { usePlayerStore } from '@/stores/player'
 import { useLibraryStore } from '@/stores/library'
+import type { Track } from '@/types/music'
 
-const resetPlayer = () => {
+function makeTrack(index: number, title: string, artist: string, duration: number): Track {
+  return {
+    id: `audius:${index}`,
+    provider: 'audius',
+    providerId: String(index),
+    title,
+    artist,
+    artistId: `audius:user:${index}`,
+    album: `Album ${index}`,
+    albumId: `audius:playlist:${index}`,
+    duration,
+  }
+}
+
+const tracks = [
+  makeTrack(0, 'Midnight Echoes', 'Aura Nova', 214),
+  makeTrack(1, 'Starlight Mirage', 'Lumen Bay', 198),
+  makeTrack(2, 'Shadow Rhythm', 'Kaelen Vance', 251),
+  makeTrack(3, 'Quiet Storm', 'Aura Nova', 232),
+]
+
+function resetPlayer() {
+  usePlayerStore.getState().reset()
   usePlayerStore.setState({
     currentTrack: tracks[0],
-    queue: tracks.slice(0, 4),
+    queue: tracks,
     index: 0,
-    isPlaying: false,
-    progress: 0,
-    volume: 0.72,
-    shuffle: false,
-    repeat: false,
+    status: 'paused',
+    duration: tracks[0].duration,
     context: { type: 'track', label: 'Test queue' },
   })
 }
@@ -41,7 +60,7 @@ describe('TrackRow', () => {
   it('starts playback for the clicked track', () => {
     render(
       <MemoryRouter>
-        <TrackRow track={tracks[1]} queue={tracks.slice(0, 4)} />
+        <TrackRow track={tracks[1]} queue={tracks} />
       </MemoryRouter>,
     )
 
@@ -60,14 +79,10 @@ describe('TrackRow', () => {
       </MemoryRouter>,
     )
 
-    expect(
-      screen.getByRole('button', { name: /Play Midnight Echoes/i }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Play Midnight Echoes/i })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Play Midnight Echoes/i }))
 
-    expect(
-      screen.getByRole('button', { name: /Pause Midnight Echoes/i }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Pause Midnight Echoes/i })).toBeInTheDocument()
   })
 })

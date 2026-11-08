@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Icon } from '@/components/brand/Icon'
 import { Artwork } from '@/components/media/Artwork'
@@ -19,6 +20,10 @@ type TrackRowProps = {
   className?: string
   loved?: boolean
   onToggleLove?: () => void
+  /** Replaces the like/more buttons, e.g. with queue reorder controls. */
+  actions?: ReactNode
+  /** When set, the track menu can remove the track from this playlist. */
+  playlistId?: string | null
 }
 
 export function TrackRow({
@@ -32,23 +37,32 @@ export function TrackRow({
   className,
   loved,
   onToggleLove,
+  actions,
+  playlistId,
 }: TrackRowProps) {
   const navigate = useNavigate()
-  const player = usePlayerStore()
+  const currentTrackId = usePlayerStore((state) => state.currentTrack?.id)
+  const playing = usePlayerStore((state) => state.isPlaying)
+  const play = usePlayerStore((state) => state.play)
+  const toggle = usePlayerStore((state) => state.toggle)
   const storeLiked = useLibraryStore((state) => state.likedIds.includes(track.id))
   const toggleLike = useLibraryStore((state) => state.toggleLike)
-  const showToast = useUiStore((state) => state.showToast)
+  const openTrackMenu = useUiStore((state) => state.openTrackMenu)
 
   const liked = loved ?? storeLiked
-  const isActive = active || player.currentTrack?.id === track.id
-  const isPlaying = isActive && player.isPlaying
+  const isActive = active || currentTrackId === track.id
+  const isPlaying = isActive && playing
 
   const handlePlay = () => {
     if (onPlay) {
       onPlay()
       return
     }
-    player.play(track, queue, { type: 'track', label: showAlbum ? track.album : 'Now playing' })
+    if (isActive) {
+      toggle()
+      return
+    }
+    play(track, queue, { type: 'track', label: showAlbum ? track.album : 'Now playing' })
   }
 
   const handleLike = async () => {
@@ -76,7 +90,7 @@ export function TrackRow({
       <button
         type="button"
         onClick={handlePlay}
-        aria-label={`${isActive && isPlaying ? 'Pause' : 'Play'} ${track.title} by ${track.artist}`}
+        aria-label={`${isPlaying ? 'Pause' : 'Play'} ${track.title} by ${track.artist}`}
         className={cn(
           'flex h-full min-w-0 flex-1 items-center gap-3 pl-3 text-left',
           isActive && 'pl-4',
@@ -90,6 +104,7 @@ export function TrackRow({
         )}
         <Artwork
           seed={track.id}
+          src={track.artwork}
           alt=""
           rounded="rounded-lg"
           className={cn(
@@ -137,37 +152,38 @@ export function TrackRow({
       </button>
 
       <div className="flex flex-shrink-0 items-center gap-0.5 pr-1">
-        <button
-          type="button"
-          onClick={handleLike}
-          aria-label={liked ? `Remove ${track.title} from liked songs` : `Like ${track.title}`}
-          aria-pressed={liked}
-          className={cn(
-            'flex h-11 w-11 items-center justify-center rounded-full transition-colors active:scale-90',
-            liked ? 'text-primary-container' : 'text-on-surface-variant hover:text-primary',
-          )}
-        >
-          <Icon name="favorite" filled={liked} size="sm" />
-        </button>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation()
-            showToast('Track options are coming in Phase 2.')
-          }}
-          aria-label={`More options for ${track.title}`}
-          className="hidden h-11 w-11 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:text-on-surface sm:flex"
-        >
-          <Icon name="more_vert" size="sm" />
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate(`/album/${track.albumId}`)}
-          aria-label={`Open album ${track.album}`}
-          className="hidden h-11 w-11 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:text-on-surface lg:flex"
-        >
-          <Icon name="album" size="sm" />
-        </button>
+        {actions ?? (
+          <>
+            <button
+              type="button"
+              onClick={() => void handleLike()}
+              aria-label={liked ? `Remove ${track.title} from liked songs` : `Like ${track.title}`}
+              aria-pressed={liked}
+              className={cn(
+                'flex h-11 w-11 items-center justify-center rounded-full transition-colors active:scale-90',
+                liked ? 'text-primary-container' : 'text-on-surface-variant hover:text-primary',
+              )}
+            >
+              <Icon name="favorite" filled={liked} size="sm" />
+            </button>
+            <button
+              type="button"
+              onClick={() => openTrackMenu(track, playlistId)}
+              aria-label={`More options for ${track.title}`}
+              className="flex h-11 w-11 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:text-on-surface"
+            >
+              <Icon name="more_vert" size="sm" />
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate(`/album/${track.albumId}`)}
+              aria-label={`Open album ${track.album}`}
+              className="hidden h-11 w-11 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:text-on-surface lg:flex"
+            >
+              <Icon name="album" size="sm" />
+            </button>
+          </>
+        )}
       </div>
     </div>
   )

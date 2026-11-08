@@ -1,9 +1,16 @@
 import { expect, test } from '@playwright/test'
+import { installMusicFixtures, playFirstResult } from './fixtures'
 
 test.describe('Lovify shell', () => {
+  test.beforeEach(async ({ page }) => {
+    await installMusicFixtures(page)
+  })
+
   test('navigates every primary tab', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByRole('heading', { level: 1, name: 'Good evening' })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { level: 1, name: /Good (morning|afternoon|evening)/ }),
+    ).toBeVisible()
 
     await page.getByRole('link', { name: 'Search', exact: true }).click()
     await expect(page.getByRole('heading', { level: 1, name: 'Search' })).toBeVisible()
@@ -12,27 +19,24 @@ test.describe('Lovify shell', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Explore' })).toBeVisible()
 
     await page.getByRole('link', { name: 'Library', exact: true }).click()
-    await expect(
-      page.getByRole('heading', { level: 1, name: 'Your Library' }),
-    ).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: 'Your Library' })).toBeVisible()
 
     await page.getByRole('link', { name: 'Profile', exact: true }).click()
     await expect(page.getByRole('heading', { level: 1, name: 'Profile' })).toBeVisible()
 
     await page.getByRole('link', { name: 'Home', exact: true }).click()
-    await expect(page.getByRole('heading', { level: 1, name: 'Good evening' })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { level: 1, name: /Good (morning|afternoon|evening)/ }),
+    ).toBeVisible()
   })
 
   test('opens the full player from the mini player', async ({ page }) => {
-    await page.goto('/')
-    await page
-      .getByRole('link', { name: /Open player: Midnight Echoes by Aura Nova/i })
-      .click()
+    const mini = await playFirstResult(page)
+
+    await mini.getByRole('link', { name: /Open player: Aurora Lines by Night Sky/i }).click()
 
     await expect(page).toHaveURL(/\/player$/)
-    await expect(
-      page.getByRole('heading', { level: 1, name: 'Midnight Echoes' }),
-    ).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: 'Aurora Lines' })).toBeVisible()
     await expect(page.getByLabel('Track progress')).toBeVisible()
   })
 
@@ -91,7 +95,7 @@ test.describe('Lovify shell', () => {
       await page.reload({ waitUntil: 'domcontentloaded' })
       await expect(page.getByRole('link', { name: 'Lovify home' })).toBeVisible()
       await expect(
-        page.getByRole('heading', { level: 1, name: 'Good evening' }),
+        page.getByRole('heading', { level: 1, name: /Good (morning|afternoon|evening)/ }),
       ).toBeVisible()
     } finally {
       await context.setOffline(false)

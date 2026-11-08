@@ -1,25 +1,46 @@
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { Icon } from '@/components/brand/Icon'
 import { Artwork } from '@/components/media/Artwork'
 import { TrackRow } from '@/components/media/TrackRow'
-import { albums, artists, initialPlaylists, tracks, tracksByIds } from '@/data/mock'
+import { PlaylistManageSheet } from '@/components/playlist/PlaylistManageSheet'
 import { cn } from '@/lib/cn'
+import { getTracksByIds } from '@/lib/db'
 import { totalDuration } from '@/lib/format'
+import { getArtistTracks, getProviderAlbum, getProviderArtist } from '@/lib/providers'
+import { ProviderError } from '@/lib/providers/types'
 import { useLibraryStore } from '@/stores/library'
 import { usePlayerStore } from '@/stores/player'
 import { useUiStore } from '@/stores/ui'
-import type { Playlist, Track } from '@/types/music'
+import type { Album, Artist, Playlist, Track } from '@/types/music'
 
 type DetailKind = 'playlist' | 'album' | 'artist'
+
+type DetailData = {
+  title: string
+  subtitle: string
+  description: string
+  items: Track[]
+  artwork?: string
+  circle?: boolean
+  extra: string[]
+}
 
 export function CollectionDetailScreen() {
   const { id = '' } = useParams()
   const location = useLocation()
   const playQueue = usePlayerStore((state) => state.playQueue)
   const showToast = useUiStore((state) => state.showToast)
-  const storedPlaylists = useLibraryStore((state) => state.playlists)
+  const playlists = useLibraryStore((state) => state.playlists)
   const likedIds = useLibraryStore((state) => state.likedIds)
   const loaded = useLibraryStore((state) => state.loaded)
+
+  const [data, setData] = useState<DetailData | null>(null)
+  const [playlist, setPlaylist] = useState<Playlist | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [managed, setManaged] = useState<Playlist | null>(null)
+  const [retryKey, setRetryKey] = useState(0)
 
   const kind: DetailKind = location.pathname.startsWith('/album/')
     ? 'album'
@@ -27,62 +48,143 @@ export function CollectionDetailScreen() {
       ? 'artist'
       : 'playlist'
 
-  let title = ''
-  let subtitle = ''
-  let description = ''
-  let items: Track[] = []
-  let coverSeed = id
-  let circle = false
-  let extra: string[] = []
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError(null)
 
-  if (kind === 'playlist') {
-    const playlist: Playlist | undefined =
-      storedPlaylists.find((item) => item.id === id) ??
-      initialPlaylists.find((item) => item.id === id)
-    if (!playlist) {
-      if (!loaded) return <DetailSkeleton />
-      return <NotFoundDetail label="This playlist could not be found." />
+    const run = async () => {
+      if (kind === 'playlist') {
+        const current = playlists.find((item) => item.id === id)
+        if (!current) {
+          if (!loaded) return
+          throw new ProviderError('unavailable', 'audius', 'This playlist could not be found.')
+        }
+        const ids = current.system === 'liked' ? likedIds : current.trackIds
+        const items = await getTracksByIds(ids)
+        if (!active) return
+        setPlaylist(current)
+        setData({
+          title: current.name,
+          subtitle: `${current.system === 'liked' ? 'Liked songs' : 'Playlist'} · ${items.length} tracks`,
+          description: current.description ?? '',
+          items,
+          artwork: items[0]?.artwork,
+          extra: [totalDuration(items.map((track) => track.duration))],
+        })
+        setLoading(false)
+        return
+      }
+
+      if (kind === 'album') {
+        const album: Album | null = await getProviderAlbum(id)
+        if (!active) return
+        if (!album) throw new ProviderError('unavailable', 'audius', 'This album could not be found.')
+        const items = await getTracksByIds(album.trackIds)
+        if (!active) return
+        setData({
+          title: album.title,
+          subtitle: `${album.artist} · ${album.kind} · ${album.year}`,
+          description: album.description || `Released by ${album.artist}.`,
+          items,
+          artwork: album.artwork,
+          extra: [`${items.length} tracks`, totalDuration(items.map((track) => track.duration))],
+        })
+        setLoading(false)
+        return
+      }
+
+      const artist: Artist | null = await getProviderArtist(id)
+      if (!active) return
+      if (!artist) throw new ProviderError('unavailable', 'audius', 'This artist could not be found.')
+      const items = await getArtistTracks(id)
+      if (!active) return
+      setData({
+        title: artist.name,
+        subtitle: `Artist · ${items.length} tracks`,
+        description: artist.bio ?? '',
+        items,
+        artwork: artist.artwork,
+        circle: true,
+        extra: [],
+      })
+      setLoading(false)
     }
-    title = playlist.name
-    description = playlist.description ?? ''
-    const ids = playlist.system === 'liked' ? likedIds : playlist.trackIds
-    items = tracksByIds(ids)
-    subtitle = `${playlist.system === 'liked' ? 'Liked songs' : 'Playlist'} · ${items.length} tracks`
-    extra = [totalDuration(items.map((track) => track.duration))]
-    coverSeed = playlist.id
+
+    void run().catch((caught: unknown) => {
+      if (!active) return
+      setLoading(false)
+      setError(
+        caught instanceof ProviderError
+          ? caught.message
+          : 'This collection could not be loaded right now.',
+      )
+    })
+
+    return () => {
+      active = false
+    }
+  }, [id, kind, likedIds, loaded, playlists, retryKey])
+
+  const albumLinks = useMemo(() => {
+    if (!data) return []
+    const seen = new Map<string, { id: string; title: string; artwork?: string; year?: number }>()
+    for (const track of data.items) {
+      if (!track.albumId || seen.has(track.albumId)) continue
+      seen.set(track.albumId, {
+        id: track.albumId,
+        title: track.album,
+        artwork: track.artwork,
+        year: track.year,
+      })
+    }
+    return Array.from(seen.values())
+  }, [data])
+
+  if (loading && !data) return <DetailSkeleton />
+
+  if (error || !data) {
+    return (
+      <div className="mx-auto flex max-w-lg flex-col items-center px-6 py-20 text-center">
+        <Icon name="music_note" size="lg" className="text-primary" />
+        <h1 className="mt-3 font-headline-md text-headline-md text-on-surface">Nothing here</h1>
+        <p className="mt-2 font-body-md text-body-md text-on-surface-variant">
+          {error ?? 'This collection could not be found.'}
+        </p>
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
+          <button
+            type="button"
+            onClick={() => setRetryKey((key) => key + 1)}
+            className="flex min-h-11 items-center gap-2 rounded-full bg-primary-container px-5 font-label-lg text-label-lg text-on-primary-container"
+          >
+            <Icon name="refresh" size="sm" />
+            Try again
+          </button>
+          <Link
+            to="/library"
+            className="flex min-h-11 items-center rounded-full bg-surface-container-high px-5 font-label-lg text-label-lg text-on-surface"
+          >
+            Back to your library
+          </Link>
+        </div>
+      </div>
+    )
   }
 
-  if (kind === 'album') {
-    const album = albums.find((item) => item.id === id)
-    if (!album) return <NotFoundDetail label="This album could not be found." />
-    title = album.title
-    subtitle = `${album.artist} · ${album.kind} · ${album.year}`
-    description = `Released by ${album.artist}.`
-    items = tracksByIds(album.trackIds)
-    extra = [`${items.length} tracks`, totalDuration(items.map((track) => track.duration))]
-    coverSeed = album.id
+  const { title, subtitle, description, items, artwork, circle, extra } = data
+
+  const playAll = () => {
+    if (!items.length) {
+      showToast('This collection has no playable tracks yet.')
+      return
+    }
+    playQueue(items, 0, { type: kind, label: title, id })
   }
 
-  if (kind === 'artist') {
-    const artist = artists.find((item) => item.id === id)
-    if (!artist) return <NotFoundDetail label="This artist could not be found." />
-    title = artist.name
-    subtitle = `Artist · ${tracks.filter((track) => track.artistId === artist.id).length} tracks`
-    description = artist.bio ?? ''
-    items = tracks.filter((track) => track.artistId === artist.id)
-    extra = albums
-      .filter((album) => album.artistId === artist.id)
-      .map((album) => `${album.kind} · ${album.title}`)
-    coverSeed = artist.id
-    circle = true
-  }
-
-  const contextLabel = title
-  const playAll = () =>
-    playQueue(items, 0, { type: kind, label: contextLabel, id })
   const shuffleAll = () => {
+    if (!items.length) return
     const shuffled = [...items].sort(() => Math.random() - 0.5)
-    playQueue(shuffled, 0, { type: kind, label: `${contextLabel} · shuffle`, id })
+    playQueue(shuffled, 0, { type: kind, label: `${title} · shuffle`, id })
     showToast('Shuffling this collection.')
   }
 
@@ -115,13 +217,18 @@ export function CollectionDetailScreen() {
           )}
         >
           <Artwork
-            seed={coverSeed}
+            seed={id}
+            src={artwork}
             alt={`${title} artwork`}
             rounded={circle ? 'rounded-full' : 'rounded-xl'}
             className="h-full w-full"
           >
             <span className="absolute inset-0 flex items-center justify-center bg-surface-container-lowest/15">
-              <Icon name={kind === 'playlist' ? 'queue_music' : kind === 'album' ? 'album' : 'person'} size="lg" className="text-white/70" />
+              <Icon
+                name={kind === 'playlist' ? 'queue_music' : kind === 'album' ? 'album' : 'person'}
+                size="lg"
+                className="text-white/70"
+              />
             </span>
           </Artwork>
         </div>
@@ -139,7 +246,7 @@ export function CollectionDetailScreen() {
               {description}
             </p>
           )}
-          {extra.length > 0 && (
+          {extra.filter(Boolean).length > 0 && (
             <p className="mt-1 font-caption text-caption uppercase tracking-wider text-outline">
               {extra.filter(Boolean).join(' · ')}
             </p>
@@ -150,7 +257,7 @@ export function CollectionDetailScreen() {
               type="button"
               onClick={playAll}
               disabled={!items.length}
-              className="flex h-12 items-center gap-2 rounded-full bg-primary-container px-5 font-label-lg text-label-lg text-on-primary-container shadow-[0_4px_16px_rgba(249,87,115,0.3)]"
+              className="flex h-12 items-center gap-2 rounded-full bg-primary-container px-5 font-label-lg text-label-lg text-on-primary-container shadow-[0_4px_16px_rgba(249,87,115,0.3)] disabled:opacity-50"
             >
               <Icon name="play_arrow" filled size="sm" />
               Play
@@ -160,7 +267,7 @@ export function CollectionDetailScreen() {
               onClick={shuffleAll}
               disabled={!items.length}
               aria-label="Shuffle"
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-container-high text-on-surface transition-colors hover:text-primary"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-container-high text-on-surface transition-colors hover:text-primary disabled:opacity-50"
             >
               <Icon name="shuffle" size="sm" />
             </button>
@@ -172,14 +279,16 @@ export function CollectionDetailScreen() {
             >
               <Icon name="share" size="sm" />
             </button>
-            <button
-              type="button"
-              onClick={() => showToast('Collection options are coming in Phase 3.')}
-              aria-label="More options"
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-container-high text-on-surface transition-colors hover:text-primary"
-            >
-              <Icon name="more_vert" size="sm" />
-            </button>
+            {kind === 'playlist' && playlist && playlist.system !== 'liked' && (
+              <button
+                type="button"
+                onClick={() => setManaged(playlist)}
+                aria-label="More options"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-container-high text-on-surface transition-colors hover:text-primary"
+              >
+                <Icon name="more_vert" size="sm" />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -188,21 +297,20 @@ export function CollectionDetailScreen() {
         <h2 className="font-title-lg text-title-lg text-on-surface">
           {kind === 'artist' ? 'Popular tracks' : 'Track list'}
         </h2>
-        {kind === 'playlist' && (
-          <span className="font-caption text-caption text-on-surface-variant">
-            {items.length} tracks · {totalDuration(items.map((track) => track.duration))}
-          </span>
-        )}
+        <span className="font-caption text-caption text-on-surface-variant">
+          {items.length} tracks · {totalDuration(items.map((track) => track.duration))}
+        </span>
       </div>
 
       <div className="mt-2 flex flex-col gap-1.5">
         {items.map((track, index) => (
           <TrackRow
-            key={track.id}
+            key={`${track.id}-${index}`}
             track={track}
             queue={items}
             showIndex={index + 1}
             showAlbum={kind !== 'album'}
+            playlistId={kind === 'playlist' && playlist?.system !== 'liked' ? playlist?.id : null}
           />
         ))}
         {items.length === 0 && (
@@ -210,7 +318,7 @@ export function CollectionDetailScreen() {
             <p className="font-title-md text-title-md text-on-surface">No tracks yet</p>
             <p className="mt-1 font-body-md text-body-md text-on-surface-variant">
               {kind === 'playlist'
-                ? 'Find something you love and add it to this playlist in Phase 2.'
+                ? 'Search for something you love and add it from the track menu.'
                 : 'Tracks will appear here once this collection is available.'}
             </p>
             {kind === 'playlist' && (
@@ -225,31 +333,46 @@ export function CollectionDetailScreen() {
         )}
       </div>
 
-      {kind === 'artist' && extra.length > 0 && (
+      {albumLinks.length > 0 && kind !== 'album' && (
         <div className="mt-6">
-          <h2 className="mb-2 font-title-lg text-title-lg text-on-surface">Appears on</h2>
+          <h2 className="mb-2 font-title-lg text-title-lg text-on-surface">
+            {kind === 'artist' ? 'Appears on' : 'From these albums'}
+          </h2>
           <div className="flex flex-col gap-1.5">
-            {albums
-              .filter((album) => album.artistId === id)
-              .map((album) => (
-                <Link
-                  key={album.id}
-                  to={`/album/${album.id}`}
-                  className="flex items-center gap-3 rounded-xl bg-surface-container-low p-2.5 transition-colors hover:bg-surface-container"
-                >
-                  <Artwork seed={album.id} alt="" rounded="rounded-lg" className="h-12 w-12 flex-shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-title-md text-title-md text-on-surface">{album.title}</p>
-                    <p className="truncate font-body-md text-body-md text-on-surface-variant">
-                      {album.kind} · {album.year} · {album.trackIds.length} tracks
-                    </p>
-                  </div>
-                  <Icon name="chevron_right" className="text-on-surface-variant" />
-                </Link>
-              ))}
+            {albumLinks.slice(0, 8).map((album) => (
+              <Link
+                key={album.id}
+                to={`/album/${album.id}`}
+                className="flex items-center gap-3 rounded-xl bg-surface-container-low p-2.5 transition-colors hover:bg-surface-container"
+              >
+                <Artwork
+                  seed={album.id}
+                  src={album.artwork}
+                  alt=""
+                  rounded="rounded-lg"
+                  className="h-12 w-12 flex-shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-title-md text-title-md text-on-surface">{album.title}</p>
+                  <p className="truncate font-body-md text-body-md text-on-surface-variant">
+                    {album.year ? `${album.year} · ` : ''}Album
+                  </p>
+                </div>
+                <Icon name="chevron_right" className="text-on-surface-variant" />
+              </Link>
+            ))}
           </div>
         </div>
       )}
+
+      <PlaylistManageSheet
+        playlist={managed}
+        onClose={() => setManaged(null)}
+        onDeleted={() => showToast('Playlist deleted.')}
+        onRenamed={(name) =>
+          setData((current) => (current ? { ...current, title: name } : current))
+        }
+      />
     </div>
   )
 }
@@ -258,24 +381,8 @@ function DetailSkeleton() {
   return (
     <div className="mx-auto w-full max-w-3xl px-margin pt-5">
       <div className="h-48 animate-pulse rounded-2xl bg-surface-container" />
-       <div className="mt-4 h-6 w-2/3 animate-pulse rounded-full bg-surface-container" />
+      <div className="mt-4 h-6 w-2/3 animate-pulse rounded-full bg-surface-container" />
       <div className="mt-2 h-4 w-1/2 animate-pulse rounded-full bg-surface-container" />
-    </div>
-  )
-}
-
-function NotFoundDetail({ label }: { label: string }) {
-  return (
-    <div className="mx-auto flex max-w-lg flex-col items-center px-6 py-20 text-center">
-      <Icon name="music_note" size="lg" className="text-primary" />
-      <h1 className="mt-3 font-headline-md text-headline-md text-on-surface">Nothing here</h1>
-      <p className="mt-2 font-body-md text-body-md text-on-surface-variant">{label}</p>
-      <Link
-        to="/library"
-        className="mt-5 flex min-h-11 items-center rounded-full bg-primary-container px-5 font-label-lg text-label-lg text-on-primary-container"
-      >
-        Back to your library
-      </Link>
     </div>
   )
 }

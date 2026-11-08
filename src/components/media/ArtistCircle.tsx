@@ -29,7 +29,13 @@ export function ArtistCircle({ artist, size = 'md', subtitle = 'Artist', classNa
           large ? 'h-24 w-24' : 'h-16 w-16',
         )}
       >
-        <Artwork seed={artist.id} alt={`${artist.name} artwork`} rounded="rounded-full" className="h-full w-full">
+        <Artwork
+          seed={artist.id}
+          src={artist.artwork}
+          alt={`${artist.name} artwork`}
+          rounded="rounded-full"
+          className="h-full w-full"
+        >
           <span
             className={cn(
               'absolute inset-0 flex items-center justify-center font-bold tracking-tight text-white/90',

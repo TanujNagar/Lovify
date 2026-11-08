@@ -4,6 +4,7 @@ import { Artwork } from '@/components/media/Artwork'
 import { PlayerControls } from '@/components/player/PlayerControls'
 import { SeekSlider } from '@/components/player/SeekSlider'
 import { cn } from '@/lib/cn'
+import { PROVIDER_LABELS } from '@/lib/providers/types'
 import { useLibraryStore } from '@/stores/library'
 import { usePlayerStore } from '@/stores/player'
 import { useUiStore } from '@/stores/ui'
@@ -12,14 +13,18 @@ export function PlayerScreen() {
   const navigate = useNavigate()
   const track = usePlayerStore((state) => state.currentTrack)
   const progress = usePlayerStore((state) => state.progress)
+  const duration = usePlayerStore((state) => state.duration)
+  const status = usePlayerStore((state) => state.status)
+  const error = usePlayerStore((state) => state.error)
   const volume = usePlayerStore((state) => state.volume)
   const seek = usePlayerStore((state) => state.seek)
   const setVolume = usePlayerStore((state) => state.setVolume)
-  const queueLength = usePlayerStore((state) => state.queue.length)
+  const queue = usePlayerStore((state) => state.queue)
+  const index = usePlayerStore((state) => state.index)
   const context = usePlayerStore((state) => state.context)
   const liked = useLibraryStore((state) => (track ? state.likedIds.includes(track.id) : false))
   const toggleLike = useLibraryStore((state) => state.toggleLike)
-  const showToast = useUiStore((state) => state.showToast)
+  const openTrackMenu = useUiStore((state) => state.openTrackMenu)
 
   if (!track) {
     return (
@@ -35,6 +40,9 @@ export function PlayerScreen() {
       </div>
     )
   }
+
+  const total = duration || track.duration
+  const provider = PROVIDER_LABELS[track.provider]
 
   return (
     <div className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-surface">
@@ -56,13 +64,14 @@ export function PlayerScreen() {
           </p>
           <p className="truncate font-label-lg text-label-lg text-on-surface">{context.label}</p>
         </div>
-        <Link
-          to="/queue"
-          aria-label="Open queue"
+        <button
+          type="button"
+          onClick={() => openTrackMenu(track)}
+          aria-label="Track options"
           className="flex h-11 w-11 items-center justify-center rounded-full text-on-surface transition-colors hover:bg-surface-container"
         >
-          <Icon name="queue_music" />
-        </Link>
+          <Icon name="more_vert" />
+        </button>
       </header>
 
       <main className="relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col overflow-y-auto px-5 pb-8 pt-2">
@@ -73,13 +82,14 @@ export function PlayerScreen() {
         <div className="mx-auto mt-1 w-full max-w-[340px]">
           <Artwork
             seed={track.id}
+            src={track.artwork}
             alt={`${track.album} artwork`}
             rounded="rounded-2xl"
             className="aspect-square w-full shadow-[0_24px_64px_rgba(0,0,0,0.55)]"
           >
             <span className="absolute inset-0 flex items-end justify-between p-4">
               <span className="rounded-full bg-surface-container-lowest/50 px-2.5 py-1 font-caption text-caption uppercase tracking-wider text-white/80 backdrop-blur-sm">
-                {track.provider === 'mock' ? 'Demo catalog' : track.provider}
+                {provider}
               </span>
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-container-lowest/40 text-white/80 backdrop-blur-sm">
                 <Icon name="graphic_eq" size="sm" />
@@ -97,6 +107,14 @@ export function PlayerScreen() {
             >
               {track.artist}
             </Link>
+            {track.album && (
+              <Link
+                to={`/album/${track.albumId}`}
+                className="mt-0.5 block truncate font-caption text-caption text-outline hover:text-primary"
+              >
+                {track.album}
+              </Link>
+            )}
           </div>
           <button
             type="button"
@@ -114,13 +132,19 @@ export function PlayerScreen() {
 
         <SeekSlider
           className="mt-5"
-          value={progress}
-          max={track.duration}
+          value={Math.min(progress, total)}
+          max={total}
           onChange={seek}
           label="Track progress"
         />
 
         <PlayerControls className="mt-4" />
+
+        {status === 'error' && error && (
+          <p role="status" className="mt-4 rounded-xl bg-error-container/20 px-3 py-2 font-body-md text-body-md text-error">
+            {error}
+          </p>
+        )}
 
         <div className="mt-6 flex items-center gap-3">
           <button
@@ -145,23 +169,33 @@ export function PlayerScreen() {
           />
         </div>
 
-        <div className="mt-auto flex items-center justify-between gap-2 pt-6">
+        {track.provider === 'youtube' && (
+          <p className="mt-4 flex items-start gap-2 rounded-xl bg-surface-container-low p-3 font-body-md text-body-md text-on-surface-variant">
+            <Icon name="info" size="sm" className="mt-1 flex-shrink-0 text-primary" />
+            YouTube plays through the official visible player. EQ and visualizer are available for
+            free-source tracks.
+          </p>
+        )}
+
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-6">
           <Link
             to="/queue"
             className="flex min-h-11 items-center gap-2 rounded-full bg-surface-container px-4 font-label-lg text-label-lg text-on-surface-variant transition-colors hover:text-on-surface"
           >
             <Icon name="queue_music" size="sm" />
-            Up next · {Math.max(0, queueLength - 1)}
+            Up next · {Math.max(0, queue.length - 1)}
           </Link>
-          <button
-            type="button"
-            onClick={() => showToast('EQ and visualizer arrive in Phase 4.')}
-            aria-label="Audio lab (coming later)"
+          <Link
+            to="/lyrics"
             className="flex min-h-11 items-center gap-2 rounded-full bg-surface-container px-4 font-label-lg text-label-lg text-on-surface-variant transition-colors hover:text-on-surface"
           >
-            <Icon name="equalizer" size="sm" />
-            Audio lab
-          </button>
+            <Icon name="lyrics" size="sm" />
+            Lyrics
+          </Link>
+          <span className="flex min-h-11 items-center gap-2 rounded-full bg-surface-container/60 px-3 font-caption text-caption uppercase tracking-wider text-on-surface-variant">
+            <Icon name="queue_music" size="sm" />
+            {index + 1}/{queue.length}
+          </span>
         </div>
       </main>
     </div>

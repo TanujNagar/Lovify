@@ -1,7 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/components/brand/Icon'
 import { Toggle } from '@/components/ui/Toggle'
-import { getStorageSummary } from '@/lib/db'
+import { formatUnits } from '@/lib/cache'
+import {
+  clearHistory as clearStoredHistory,
+  clearSearchCache,
+  getSetting,
+  getStorageSummary,
+  removeSetting,
+  setSetting,
+} from '@/lib/db'
+import {
+  JAMENDO_CLIENT_ID_HELP_URL,
+  JAMENDO_CLIENT_ID_SETTING,
+} from '@/lib/providers/jamendo'
 import { isIos, isStandalone, promptInstall, useInstallPrompt } from '@/lib/pwa'
 import {
   YOUTUBE_KEY_HELP_URL,
@@ -12,8 +24,12 @@ import {
   validateYouTubeKey,
   type KeyStatus,
 } from '@/lib/youtube'
+import { useLibraryStore } from '@/stores/library'
+import { useSourcesStore } from '@/stores/sources'
 import { useThemeStore } from '@/stores/theme'
 import { useUiStore } from '@/stores/ui'
+
+const envJamendoId = Boolean(import.meta.env.VITE_JAMENDO_CLIENT_ID)
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return '0 B'
@@ -22,11 +38,52 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`
 }
 
+function SourceRow({
+  name,
+  detail,
+  active,
+  warning,
+}: {
+  name: string
+  detail: string
+  active: boolean
+  warning?: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-container-low p-3">
+      <div className="min-w-0">
+        <p className="font-title-md text-title-md text-on-surface">{name}</p>
+        <p className="mt-0.5 font-body-md text-body-md text-on-surface-variant">{detail}</p>
+      </div>
+      <span
+        className={
+          warning
+            ? 'rounded-full bg-error-container/30 px-2.5 py-1 font-caption text-caption uppercase tracking-wider text-error'
+            : active
+              ? 'rounded-full bg-secondary-container px-2.5 py-1 font-caption text-caption uppercase tracking-wider text-on-secondary-container'
+              : 'rounded-full bg-surface-container-high px-2.5 py-1 font-caption text-caption uppercase tracking-wider text-on-surface-variant'
+        }
+      >
+        {warning ? 'Quota' : active ? 'On' : 'Off'}
+      </span>
+    </div>
+  )
+}
+
 export function SettingsScreen() {
   const theme = useThemeStore((state) => state.theme)
   const setTheme = useThemeStore((state) => state.setTheme)
   const showToast = useUiStore((state) => state.showToast)
+  const clearLibraryHistory = useLibraryStore((state) => state.clearHistory)
   const canInstall = useInstallPrompt()
+
+  const youtube = useSourcesStore((state) => state.youtube)
+  const jamendo = useSourcesStore((state) => state.jamendo)
+  const usage = useSourcesStore((state) => state.usage)
+  const sourcesLoading = useSourcesStore((state) => state.loading)
+  const refreshSources = useSourcesStore((state) => state.refresh)
+  const refreshAfterKeyChange = useSourcesStore((state) => state.refreshAfterKeyChange)
+  const refreshAfterJamendoChange = useSourcesStore((state) => state.refreshAfterJamendoChange)
 
   const [savedKey, setSavedKey] = useState<string | null>(null)
   const [draftKey, setDraftKey] = useState('')
@@ -36,10 +93,17 @@ export function SettingsScreen() {
   const [testing, setTesting] = useState(false)
   const keyInputRef = useRef<HTMLInputElement>(null)
 
+  const [savedJamendo, setSavedJamendo] = useState<string | null>(null)
+  const [jamendoDraft, setJamendoDraft] = useState('')
+  const [savingJamendo, setSavingJamendo] = useState(false)
+  const [jamendoMessage, setJamendoMessage] = useState('Loading Jamendo client id…')
+
   const [storage, setStorage] = useState({ downloads: 0, bytes: 0 })
+  const [clearing, setClearing] = useState<'search' | 'history' | null>(null)
 
   useEffect(() => {
     let active = true
+    void refreshSources()
     void getYouTubeKey().then((key) => {
       if (!active) return
       if (key) {
@@ -49,7 +113,19 @@ export function SettingsScreen() {
       } else {
         setSavedKey(null)
         setKeyStatus('empty')
-        setKeyMessage('No key saved. Lovify uses the shared server route in Phase 2.')
+        setKeyMessage(
+          'No key saved. Lovify uses the shared server route when it is available, or free sources only.',
+        )
+      }
+    })
+    void getSetting<string>(JAMENDO_CLIENT_ID_SETTING).then((id) => {
+      if (!active) return
+      if (id) {
+        setSavedJamendo(id)
+        setJamendoMessage(`A client id is saved in this browser (${maskKey(id)}).`)
+      } else {
+        setSavedJamendo(null)
+        setJamendoMessage('No Jamendo client id saved. Audius works without any key.')
       }
     })
     void getStorageSummary().then((summary) => {
@@ -58,7 +134,7 @@ export function SettingsScreen() {
     return () => {
       active = false
     }
-  }, [])
+  }, [refreshSources])
 
   const saveAndTest = async () => {
     const candidate = draftKey.trim() || savedKey
@@ -81,6 +157,8 @@ export function SettingsScreen() {
       setSavedKey(candidate)
       setDraftKey('')
       setKeyMessage(`Key works. Saved only in this browser (${maskKey(candidate)}).`)
+      await refreshAfterKeyChange()
+      showToast('YouTube key verified. Your searches use your own quota.')
     } else {
       setKeyMessage(result.message)
     }
@@ -91,8 +169,61 @@ export function SettingsScreen() {
     setSavedKey(null)
     setDraftKey('')
     setKeyStatus('empty')
-    setKeyMessage('Key removed. Lovify will use the shared route in Phase 2.')
+    setKeyMessage('Key removed. Lovify uses the shared route or free sources.')
+    await refreshAfterKeyChange()
     showToast('YouTube API key removed from this browser.')
+  }
+
+  const saveJamendo = async () => {
+    const id = jamendoDraft.trim()
+    if (!id) {
+      setJamendoMessage('Paste a Jamendo client id first.')
+      return
+    }
+
+    setSavingJamendo(true)
+    try {
+      await setSetting(JAMENDO_CLIENT_ID_SETTING, id)
+      setSavedJamendo(id)
+      setJamendoDraft('')
+      setJamendoMessage(`Jamendo is connected in this browser (${maskKey(id)}).`)
+      await refreshAfterJamendoChange()
+      showToast('Jamendo client id saved. Jamendo is now part of search.')
+    } catch {
+      setJamendoMessage('Could not save the client id. Check that storage is available.')
+    } finally {
+      setSavingJamendo(false)
+    }
+  }
+
+  const removeJamendo = async () => {
+    await removeSetting(JAMENDO_CLIENT_ID_SETTING)
+    setSavedJamendo(null)
+    setJamendoDraft('')
+    setJamendoMessage('Jamendo client id removed. Audius keeps working without a key.')
+    await refreshAfterJamendoChange()
+    showToast('Jamendo client id removed.')
+  }
+
+  const clearSearch = async () => {
+    setClearing('search')
+    try {
+      await clearSearchCache()
+      showToast('Search cache cleared. The next search may use quota again.')
+    } finally {
+      setClearing(null)
+    }
+  }
+
+  const clearHistory = async () => {
+    setClearing('history')
+    try {
+      await clearStoredHistory()
+      await clearLibraryHistory()
+      showToast('Listening history cleared.')
+    } finally {
+      setClearing(null)
+    }
   }
 
   const statusColor =
@@ -101,6 +232,14 @@ export function SettingsScreen() {
       : keyStatus === 'invalid' || keyStatus === 'error'
         ? 'text-error'
         : 'text-on-surface-variant'
+
+  const youtubeDetail = youtube.available
+    ? youtube.mode === 'user'
+      ? 'Your own key · searches use your quota'
+      : 'Shared server key · fair use'
+    : youtube.blocked
+      ? 'Daily quota used up · free sources only'
+      : 'Not connected · free sources only'
 
   return (
     <div className="mx-auto w-full max-w-2xl px-margin pb-10">
@@ -126,31 +265,38 @@ export function SettingsScreen() {
       </section>
 
       <section aria-labelledby="source-heading" className="mb-4 rounded-xl bg-surface-container p-4 shadow-sm">
-        <h2 id="source-heading" className="mb-2 flex items-center gap-2 font-title-lg text-title-lg text-on-surface">
-          <Icon name="auto_awesome" filled className="text-primary" />
-          Music source
-        </h2>
-        <div className="flex items-start gap-3 rounded-lg bg-surface-container-low p-3">
-          <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-primary-container" />
-          <div>
-            <p className="font-title-md text-title-md text-on-surface">Free · local demo library</p>
-            <p className="mt-0.5 font-body-md text-body-md text-on-surface-variant">
-              The app shell, library and player run entirely on this device. Jamendo, Audius and
-              YouTube providers connect in Phase 2.
-            </p>
-          </div>
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <h2 id="source-heading" className="flex items-center gap-2 font-title-lg text-title-lg text-on-surface">
+            <Icon name="auto_awesome" filled className="text-primary" />
+            Music sources
+          </h2>
           <span className="rounded-full bg-surface-container-low px-2.5 py-1 font-caption text-caption uppercase tracking-wider text-on-surface-variant">
-            No subscription
-          </span>
-          <span className="rounded-full bg-surface-container-low px-2.5 py-1 font-caption text-caption uppercase tracking-wider text-on-surface-variant">
-            No tracking
-          </span>
-          <span className="rounded-full bg-surface-container-low px-2.5 py-1 font-caption text-caption uppercase tracking-wider text-on-surface-variant">
-            Offline shell
+            Free
           </span>
         </div>
+        <div className="space-y-2">
+          <SourceRow
+            name="Audius"
+            detail="Free · no key needed"
+            active
+          />
+          <SourceRow
+            name="Jamendo"
+            detail={jamendo ? 'Connected with your free client id' : 'Add a free client id to include it'}
+            active={jamendo}
+          />
+          <SourceRow
+            name="YouTube"
+            detail={youtubeDetail}
+            active={youtube.available}
+            warning={youtube.blocked}
+          />
+        </div>
+        <p className="mt-3 font-caption text-caption leading-relaxed text-on-surface-variant">
+          {sourcesLoading
+            ? 'Checking which sources answer…'
+            : 'All sources are free. No subscription, no tracking, and no sign-in is required.'}
+        </p>
       </section>
 
       <section aria-labelledby="youtube-heading" className="mb-4 rounded-xl bg-surface-container p-4 shadow-sm">
@@ -166,9 +312,8 @@ export function SettingsScreen() {
           )}
         </div>
         <p className="font-body-md text-body-md leading-relaxed text-on-surface-variant">
-          Optional. Add your own YouTube Data API key to search with your own quota in Phase 2.
-          It is stored only in this browser's IndexedDB and sent directly to Google — never to
-          Lovify's server.
+          Optional. Add your own YouTube Data API key to search with your own quota. It is stored
+          only in this browser's IndexedDB and sent directly to Google — never to Lovify's server.
         </p>
 
         <label htmlFor="youtube-key" className="mt-4 block font-label-lg text-label-lg text-on-surface">
@@ -257,6 +402,121 @@ export function SettingsScreen() {
           One validation call uses 1 quota unit. The key is never printed, logged, committed or
           sent to our own servers.
         </p>
+
+        <div className="mt-4 rounded-lg bg-surface-container-low p-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="font-title-md text-title-md text-on-surface">Search quota today</p>
+            <p className="font-caption text-caption text-on-surface-variant">
+              {formatUnits(usage.units)} / {formatUnits(usage.limit)} units
+            </p>
+          </div>
+          <div
+            className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-container-highest"
+            role="progressbar"
+            aria-label="YouTube quota used today"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.min(100, usage.percent)}
+          >
+            <div
+              className={`h-full rounded-full ${
+                usage.warning ? 'bg-error' : 'bg-primary-container'
+              }`}
+              style={{ width: `${Math.min(100, usage.percent)}%` }}
+            />
+          </div>
+          <p className="mt-2 font-caption text-caption leading-relaxed text-on-surface-variant">
+            {usage.blocked
+              ? 'YouTube is resting for today. Lovify is using Audius and Jamendo instead.'
+              : usage.warning
+                ? `A search costs about 101 units. You are past ${Math.round(
+                    (usage.units / usage.limit) * 100,
+                  )}% of the free daily quota.`
+                : 'Counted locally. Repeating a cached search costs nothing.'}
+          </p>
+        </div>
+      </section>
+
+      <section aria-labelledby="jamendo-heading" className="mb-4 rounded-xl bg-surface-container p-4 shadow-sm">
+        <div className="mb-1 flex items-start justify-between gap-3">
+          <h2 id="jamendo-heading" className="flex items-center gap-2 font-title-lg text-title-lg text-on-surface">
+            <Icon name="public" className="text-primary" />
+            Jamendo client id
+          </h2>
+          {savedJamendo && !envJamendoId && (
+            <span className="rounded-full bg-secondary-container px-2 py-0.5 font-caption text-caption uppercase tracking-wider text-on-secondary-container">
+              Saved
+            </span>
+          )}
+        </div>
+        <p className="font-body-md text-body-md leading-relaxed text-on-surface-variant">
+          Jamendo is a free catalogue of independent music. Create a free app in the Jamendo
+          developer portal and paste its client id here. It stays on this device.
+        </p>
+
+        {envJamendoId && (
+          <p className="mt-3 flex items-start gap-2 rounded-lg bg-surface-container-low p-2.5 font-body-md text-body-md text-primary">
+            <Icon name="check_circle" filled size="sm" className="mt-0.5 flex-shrink-0" />
+            A build-time Jamendo client id is active and overrides the value below.
+          </p>
+        )}
+
+        <label htmlFor="jamendo-id" className="mt-4 block font-label-lg text-label-lg text-on-surface">
+          Client id
+        </label>
+        <div className="mt-1.5 flex h-12 items-center gap-2 rounded-xl bg-surface-container-low px-3 focus-within:ring-2 focus-within:ring-primary/60">
+          <Icon name="vpn_key" size="sm" className="flex-shrink-0 text-on-surface-variant" />
+          <input
+            id="jamendo-id"
+            type="text"
+            value={jamendoDraft}
+            onChange={(event) => setJamendoDraft(event.target.value)}
+            placeholder={savedJamendo ? `Saved: ${maskKey(savedJamendo)}` : 'Paste your client id'}
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            className="h-full min-w-0 flex-1 bg-transparent font-body-md text-body-md text-on-surface placeholder:text-outline focus:outline-none"
+          />
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void saveJamendo()}
+            disabled={savingJamendo || !jamendoDraft.trim()}
+            className="flex min-h-11 items-center gap-2 rounded-full bg-primary-container px-4 font-label-lg text-label-lg text-on-primary-container disabled:opacity-50"
+          >
+            <Icon name="save" size="sm" />
+            {savingJamendo ? 'Saving…' : 'Save client id'}
+          </button>
+          {savedJamendo && !envJamendoId && (
+            <button
+              type="button"
+              onClick={() => void removeJamendo()}
+              className="flex min-h-11 items-center gap-2 rounded-full bg-surface-container-high px-4 font-label-lg text-label-lg text-on-surface-variant transition-colors hover:text-error"
+            >
+              <Icon name="delete" size="sm" />
+              Remove
+            </button>
+          )}
+          <a
+            href={JAMENDO_CLIENT_ID_HELP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex min-h-11 items-center gap-1.5 rounded-full px-3 font-label-md text-label-md text-primary underline-offset-4 hover:underline"
+          >
+            Get a free client id
+            <Icon name="open_in_new" size="sm" />
+          </a>
+        </div>
+
+        <p
+          role="status"
+          aria-live="polite"
+          className="mt-3 rounded-lg bg-surface-container-low p-2.5 font-body-md text-body-md text-on-surface-variant"
+        >
+          {jamendoMessage}
+        </p>
       </section>
 
       <section aria-labelledby="storage-heading" className="mb-4 rounded-xl bg-surface-container p-4 shadow-sm">
@@ -268,16 +528,38 @@ export function SettingsScreen() {
           <div>
             <p className="font-title-md text-title-md text-on-surface">On this device</p>
             <p className="mt-0.5 font-body-md text-body-md text-on-surface-variant">
-              IndexedDB · playlists, likes, settings
+              IndexedDB · playlists, likes, history, cache
             </p>
           </div>
           <span className="whitespace-nowrap font-label-md text-label-md text-on-surface-variant">
             {storage.downloads} downloads · {formatBytes(storage.bytes)}
           </span>
         </div>
+
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => void clearSearch()}
+            disabled={clearing !== null}
+            className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-surface-container-high px-3 font-label-lg text-label-lg text-on-surface-variant hover:text-on-surface disabled:opacity-50"
+          >
+            <Icon name="search_off" size="sm" />
+            {clearing === 'search' ? 'Clearing…' : 'Clear search cache'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void clearHistory()}
+            disabled={clearing !== null}
+            className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-surface-container-high px-3 font-label-lg text-label-lg text-on-surface-variant hover:text-error disabled:opacity-50"
+          >
+            <Icon name="history_toggle_off" size="sm" />
+            {clearing === 'history' ? 'Clearing…' : 'Clear listening history'}
+          </button>
+        </div>
+
         <p className="mt-2 font-caption text-caption leading-relaxed text-on-surface-variant">
-          Lovify is local-first. Nothing here is synced to a server, and there is no analytics.
-          Backup export and import arrive in Phase 3.
+          Lovify is local-first. Playlists, likes and history never leave this device. Backup
+          export and import arrive in Phase 3.
         </p>
       </section>
 
@@ -323,7 +605,7 @@ export function SettingsScreen() {
         <dl className="space-y-1 font-body-md text-body-md">
           <div className="flex items-center justify-between">
             <dt className="text-on-surface-variant">Version</dt>
-            <dd className="text-on-surface">0.1.0 · Phase 1</dd>
+            <dd className="text-on-surface">0.2.0 · Phase 2</dd>
           </div>
           <div className="flex items-center justify-between">
             <dt className="text-on-surface-variant">Theme</dt>
@@ -331,12 +613,13 @@ export function SettingsScreen() {
           </div>
           <div className="flex items-center justify-between">
             <dt className="text-on-surface-variant">Music</dt>
-            <dd className="text-on-surface">Demo catalog</dd>
+            <dd className="text-on-surface">Audius · Jamendo · YouTube</dd>
           </div>
         </dl>
         <p className="mt-3 font-caption text-caption leading-relaxed text-on-surface-variant">
           Original product, original name and logo. Built with free and open-source software.
-          No data leaves this device except the optional key check you start yourself.
+          YouTube plays through its official visible player. No audio is ever extracted or
+          downloaded.
         </p>
       </section>
     </div>

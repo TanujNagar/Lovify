@@ -1,24 +1,64 @@
+import { useEffect, useState } from 'react'
 import { Icon } from '@/components/brand/Icon'
 import { AlbumCard } from '@/components/media/AlbumCard'
 import { TrackRow } from '@/components/media/TrackRow'
 import { SectionHeader } from '@/components/ui/SectionHeader'
-import { moods, newReleases, tracks, trendingTracks, vibeStations } from '@/data/mock'
+import { moods, radioStations } from '@/data/editorial'
 import { cn } from '@/lib/cn'
+import { searchFreeTracks } from '@/lib/providers'
+import { ProviderError } from '@/lib/providers/types'
+import { useCatalogStore } from '@/stores/catalog'
 import { usePlayerStore } from '@/stores/player'
 import { useUiStore } from '@/stores/ui'
 
 export function ExploreScreen() {
+  const trending = useCatalogStore((state) => state.trending)
+  const albums = useCatalogStore((state) => state.albums)
+  const loading = useCatalogStore((state) => state.loading)
+  const error = useCatalogStore((state) => state.error)
+  const load = useCatalogStore((state) => state.load)
   const playQueue = usePlayerStore((state) => state.playQueue)
   const showToast = useUiStore((state) => state.showToast)
+  const [busy, setBusy] = useState<string | null>(null)
 
-  const playStation = (stationId: string) => {
-    const station = vibeStations.find((item) => item.id === stationId)
-    if (!station) return
-    const queue = station.trackIds
-      .map((id) => tracks.find((track) => track.id === id))
-      .filter((track): track is (typeof tracks)[number] => Boolean(track))
-    playQueue(queue, 0, { type: 'radio', label: station.name })
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const playVibeRadio = (shuffle = false) => {
+    if (!trending.length) {
+      showToast('Free music is still loading. Try again in a moment.')
+      return
+    }
+    const queue = shuffle
+      ? [...trending].sort(() => Math.random() - 0.5).slice(0, 20)
+      : trending.slice(0, 20)
+    playQueue(queue, 0, { type: 'radio', label: 'Vibe Radio' })
+    if (shuffle) showToast('A fresh Vibe Radio mix is playing.')
   }
+
+  const playQuery = async (query: string, label: string) => {
+    if (busy) return
+    setBusy(label)
+    try {
+      const tracks = await searchFreeTracks(query, 20)
+      if (!tracks.length) {
+        showToast(`No free tracks matched ${label}. Try another mood.`)
+        return
+      }
+      playQueue(tracks, 0, { type: 'radio', label })
+    } catch (caught) {
+      showToast(
+        caught instanceof ProviderError
+          ? caught.message
+          : 'Free music is unreachable right now. Try again in a moment.',
+      )
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const hasCatalog = trending.length > 0 || albums.length > 0
 
   return (
     <div className="mx-auto w-full max-w-4xl px-margin pb-10">
@@ -43,7 +83,7 @@ export function ExploreScreen() {
               Your night, in motion
             </h2>
             <p className="mt-1 max-w-[250px] font-body-md text-body-md leading-relaxed text-on-surface-variant">
-              An auto-generated mix shaped by your recent listening. It changes as you do.
+              An auto-generated mix shaped by trending free music. It changes as you do.
             </p>
           </div>
           <span className="hidden h-20 w-20 flex-shrink-0 items-center justify-center rounded-2xl bg-surface-container-lowest/30 text-primary sm:flex">
@@ -53,7 +93,7 @@ export function ExploreScreen() {
         <div className="relative z-10 mt-5 flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => playQueue(tracks.slice(0, 12), 0, { type: 'radio', label: 'Vibe Radio' })}
+            onClick={() => playVibeRadio()}
             className="flex min-h-11 items-center gap-2 rounded-full bg-primary-container px-5 font-label-lg text-label-lg text-on-primary-container shadow-[0_4px_16px_rgba(249,87,115,0.4)]"
           >
             <Icon name="play_arrow" filled size="sm" />
@@ -61,11 +101,7 @@ export function ExploreScreen() {
           </button>
           <button
             type="button"
-            onClick={() => {
-              const shuffled = [...tracks].sort(() => Math.random() - 0.5).slice(0, 12)
-              playQueue(shuffled, 0, { type: 'radio', label: 'Vibe Radio' })
-              showToast('A fresh Vibe Radio mix is playing.')
-            }}
+            onClick={() => playVibeRadio(true)}
             className="flex min-h-11 items-center gap-2 rounded-full bg-surface-container-lowest/25 px-4 font-label-lg text-label-lg text-on-surface backdrop-blur-sm"
           >
             <Icon name="refresh" size="sm" />
@@ -74,62 +110,95 @@ export function ExploreScreen() {
         </div>
       </section>
 
-      <section className="mb-7">
-        <SectionHeader title="New releases" subtitle="Fresh from artists in your orbit" actionLabel="See all" actionTo="/search" />
-        <div className="-mx-margin flex gap-4 overflow-x-auto px-margin pb-2 no-scrollbar">
-          {newReleases.map((album) => (
-            <AlbumCard
-              key={album.id}
-              item={{
-                id: album.id,
-                title: album.title,
-                subtitle: `${album.artist} • ${album.kind}`,
-                kind: 'album',
-                href: `/album/${album.id}`,
-              }}
-              label={album.kind}
-              dotClass="bg-primary-container"
-            />
+      {!hasCatalog && loading && (
+        <div className="mb-7 grid grid-cols-2 gap-3" aria-busy="true">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="h-36 animate-pulse rounded-xl bg-surface-container" />
           ))}
         </div>
-      </section>
+      )}
 
-      <section className="mb-7">
-        <SectionHeader title="Trending now" subtitle="What the quiet crowd is playing" />
-        <div className="flex flex-col gap-1.5">
-          {trendingTracks.map((track, index) => (
-            <TrackRow
-              key={track.id}
-              track={track}
-              queue={trendingTracks}
-              showIndex={index + 1}
-            />
-          ))}
+      {!hasCatalog && !loading && error && (
+        <div className="mb-7 rounded-xl bg-surface-container-low p-5 text-center">
+          <Icon name="cloud_off" className="text-primary" size="lg" />
+          <p className="mt-2 font-title-md text-title-md text-on-surface">Free music is out of reach</p>
+          <p className="mt-1 font-body-md text-body-md text-on-surface-variant">{error}</p>
+          <button
+            type="button"
+            onClick={() => void load(true)}
+            className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-full bg-primary-container px-5 font-label-lg text-label-lg text-on-primary-container"
+          >
+            <Icon name="refresh" size="sm" />
+            Try again
+          </button>
         </div>
-      </section>
+      )}
+
+      {albums.length > 0 && (
+        <section className="mb-7">
+          <SectionHeader
+            title="New releases"
+            subtitle="Fresh collections from free sources"
+            actionLabel="Search"
+            actionTo="/search"
+          />
+          <div className="-mx-margin flex gap-4 overflow-x-auto px-margin pb-2 no-scrollbar">
+            {albums.slice(0, 10).map((album) => (
+              <AlbumCard
+                key={album.id}
+                item={{
+                  id: album.id,
+                  title: album.title,
+                  subtitle: `${album.artist} · ${album.kind}`,
+                  kind: 'album',
+                  href: `/album/${album.id}`,
+                  artwork: album.artwork,
+                  provider: album.provider,
+                }}
+                label={album.kind}
+                dotClass="bg-primary-container"
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {trending.length > 0 && (
+        <section className="mb-7">
+          <SectionHeader title="Trending now" subtitle="What the quiet crowd is playing" />
+          <div className="flex flex-col gap-1.5">
+            {trending.slice(0, 8).map((track, index) => (
+              <TrackRow
+                key={track.id}
+                track={track}
+                queue={trending}
+                showIndex={index + 1}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="mb-7">
         <SectionHeader title="Moods & activities" subtitle="Pick a feeling, not a genre" />
         <div className="grid grid-cols-2 gap-3">
-          {moods.map((mood, index) => (
+          {moods.map((mood) => (
             <button
               key={mood.id}
               type="button"
-              onClick={() => {
-                const start = (index * 3) % tracks.length
-                const queue = [
-                  ...tracks.slice(start, start + 4),
-                  ...tracks.slice(0, Math.max(0, 4 - (tracks.length - start))),
-                ]
-                playQueue(queue, 0, { type: 'radio', label: mood.name })
-              }}
+              disabled={Boolean(busy)}
+              onClick={() => void playQuery(mood.query, mood.name)}
               className={cn(
-                'group relative flex h-28 flex-col justify-between overflow-hidden rounded-xl bg-gradient-to-br p-3 text-left shadow-md transition-transform active:scale-[0.98]',
+                'group relative flex h-28 flex-col justify-between overflow-hidden rounded-xl bg-gradient-to-br p-3 text-left shadow-md transition-transform active:scale-[0.98] disabled:opacity-70',
                 mood.gradient,
               )}
             >
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-container-lowest/40 backdrop-blur-sm">
-                <Icon name={mood.icon} className="text-primary" />
+                {busy === mood.name ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary/40 border-t-primary" />
+                ) : (
+                  <Icon name={mood.icon} className="text-primary" />
+                )}
               </span>
               <span>
                 <span className="block font-title-md text-title-md text-on-surface">{mood.name}</span>
@@ -150,7 +219,7 @@ export function ExploreScreen() {
       <section>
         <SectionHeader title="Vibe Radio stations" subtitle="Three rooms, no algorithms to argue with" />
         <div className="flex flex-col gap-2">
-          {vibeStations.map((station, index) => (
+          {radioStations.map((station, index) => (
             <div
               key={station.id}
               className="flex items-center gap-3 rounded-xl bg-surface-container-low p-3"
@@ -165,7 +234,11 @@ export function ExploreScreen() {
                       : 'bg-tertiary-container/25 text-tertiary',
                 )}
               >
-                <Icon name={index === 0 ? 'graphic_eq' : index === 1 ? 'headphones' : 'explore'} size="lg" />
+                {busy === station.name ? (
+                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-current/30 border-t-current" />
+                ) : (
+                  <Icon name={station.icon} size="lg" />
+                )}
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-title-md text-title-md text-on-surface">{station.name}</p>
@@ -175,9 +248,10 @@ export function ExploreScreen() {
               </div>
               <button
                 type="button"
-                onClick={() => playStation(station.id)}
+                disabled={Boolean(busy)}
+                onClick={() => void playQuery(station.query, station.name)}
                 aria-label={`Play ${station.name} station`}
-                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-surface-container-high text-on-surface transition-colors hover:bg-primary-container hover:text-on-primary-container"
+                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-surface-container-high text-on-surface transition-colors hover:bg-primary-container hover:text-on-primary-container disabled:opacity-60"
               >
                 <Icon name="play_arrow" filled />
               </button>

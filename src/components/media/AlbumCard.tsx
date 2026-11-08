@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom'
 import { Icon } from '@/components/brand/Icon'
 import { Artwork } from '@/components/media/Artwork'
-import { tracksForCollection } from '@/data/mock'
 import { cn } from '@/lib/cn'
-import { usePlayerStore } from '@/stores/player'
+import { playCollection } from '@/lib/providers'
+import { useUiStore } from '@/stores/ui'
 import type { CollectionItem } from '@/types/music'
 
 type AlbumCardProps = {
@@ -25,7 +25,7 @@ export function AlbumCard({
   onPlay,
   showPlay = true,
 }: AlbumCardProps) {
-  const playQueue = usePlayerStore((state) => state.playQueue)
+  const showToast = useUiStore((state) => state.showToast)
   const large = size === 'lg'
 
   const handlePlay = () => {
@@ -33,8 +33,9 @@ export function AlbumCard({
       onPlay()
       return
     }
-    const queue = tracksForCollection(item)
-    playQueue(queue, 0, { type: item.kind === 'track' ? 'track' : item.kind, label: item.title })
+    void playCollection(item).then((count) => {
+      if (!count) showToast('This collection has no playable tracks yet.')
+    })
   }
 
   return (
@@ -56,7 +57,13 @@ export function AlbumCard({
           aria-label={`Open ${item.title}`}
           className="absolute inset-0 z-10 rounded-[inherit]"
         >
-          <Artwork seed={item.id} alt="" rounded={large ? 'rounded-xl' : 'rounded-lg'} className="h-full w-full">
+          <Artwork
+            seed={item.id}
+            src={item.artwork}
+            alt=""
+            rounded={large ? 'rounded-xl' : 'rounded-lg'}
+            className="h-full w-full"
+          >
             <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-surface-container-lowest/80 via-transparent to-transparent opacity-90" />
           </Artwork>
         </Link>

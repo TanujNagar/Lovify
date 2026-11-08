@@ -2,6 +2,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { youtubeApiPlugin } from './server/youtube-dev'
 
 export default defineConfig({
   resolve: {
@@ -11,6 +12,7 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    youtubeApiPlugin(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: [

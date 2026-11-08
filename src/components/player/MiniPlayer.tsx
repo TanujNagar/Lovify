@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Icon } from '@/components/brand/Icon'
 import { Artwork } from '@/components/media/Artwork'
+import { PROVIDER_LABELS } from '@/lib/providers/types'
 import { cn } from '@/lib/cn'
 import { useLibraryStore } from '@/stores/library'
 import { usePlayerStore } from '@/stores/player'
@@ -12,7 +13,9 @@ type MiniPlayerProps = {
 export function MiniPlayer({ className }: MiniPlayerProps) {
   const track = usePlayerStore((state) => state.currentTrack)
   const isPlaying = usePlayerStore((state) => state.isPlaying)
+  const status = usePlayerStore((state) => state.status)
   const progress = usePlayerStore((state) => state.progress)
+  const duration = usePlayerStore((state) => state.duration)
   const toggle = usePlayerStore((state) => state.toggle)
   const next = usePlayerStore((state) => state.next)
   const liked = useLibraryStore((state) =>
@@ -22,7 +25,8 @@ export function MiniPlayer({ className }: MiniPlayerProps) {
 
   if (!track) return null
 
-  const percent = Math.min(100, Math.max(0, (progress / track.duration) * 100))
+  const total = duration || track.duration
+  const percent = total > 0 ? Math.min(100, Math.max(0, (progress / total) * 100)) : 0
 
   return (
     <section
@@ -37,7 +41,13 @@ export function MiniPlayer({ className }: MiniPlayerProps) {
         aria-label={`Open player: ${track.title} by ${track.artist}`}
         className="flex min-w-0 flex-1 items-center gap-3"
       >
-        <Artwork seed={track.id} alt="" rounded="rounded-lg" className="h-10 w-10 flex-shrink-0">
+        <Artwork
+          seed={track.id}
+          src={track.artwork}
+          alt=""
+          rounded="rounded-lg"
+          className="h-10 w-10 flex-shrink-0"
+        >
           <span className="absolute inset-0 flex items-center justify-center">
             <Icon name="music_note" size="sm" className="text-white/80" />
           </span>
@@ -47,7 +57,7 @@ export function MiniPlayer({ className }: MiniPlayerProps) {
             {track.title}
           </span>
           <span className="truncate font-body-md text-body-md text-[12px] text-on-surface-variant">
-            {track.artist}
+            {track.artist} · {PROVIDER_LABELS[track.provider]}
           </span>
         </span>
       </Link>
@@ -71,11 +81,15 @@ export function MiniPlayer({ className }: MiniPlayerProps) {
           aria-label={isPlaying ? 'Pause playback' : 'Resume playback'}
           className="flex h-11 w-11 items-center justify-center rounded-full bg-primary-container text-on-primary-container shadow-[0_4px_16px_rgba(249,87,115,0.35)]"
         >
-          <Icon name={isPlaying ? 'pause' : 'play_arrow'} filled />
+          {status === 'loading' && isPlaying ? (
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-on-primary-container/40 border-t-on-primary-container" />
+          ) : (
+            <Icon name={isPlaying ? 'pause' : 'play_arrow'} filled />
+          )}
         </button>
         <button
           type="button"
-          onClick={next}
+          onClick={() => next()}
           aria-label="Skip next track"
           className="flex h-11 w-11 items-center justify-center rounded-full text-on-surface transition-colors hover:text-primary"
         >

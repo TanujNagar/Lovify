@@ -8,6 +8,7 @@ import { useUiStore } from '@/stores/ui'
 export function CreatePlaylistSheet() {
   const navigate = useNavigate()
   const open = useUiStore((state) => state.createPlaylistOpen)
+  const seedTrack = useUiStore((state) => state.seedTrack)
   const close = useUiStore((state) => state.closeCreatePlaylist)
   const showToast = useUiStore((state) => state.showToast)
   const createPlaylist = useLibraryStore((state) => state.createPlaylist)
@@ -42,7 +43,7 @@ export function CreatePlaylistSheet() {
     setSubmitting(true)
     setError(null)
     try {
-      const playlist = await createPlaylist(trimmed, description)
+      const playlist = await createPlaylist(trimmed, description, seedTrack ? [seedTrack.id] : [])
       close()
       showToast(`“${playlist.name}” created.`)
       navigate(`/playlist/${playlist.id}`)

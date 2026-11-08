@@ -1,8 +1,8 @@
 import { Icon } from '@/components/brand/Icon'
 import { Artwork } from '@/components/media/Artwork'
-import { tracksForCollection } from '@/data/mock'
 import { cn } from '@/lib/cn'
-import { usePlayerStore } from '@/stores/player'
+import { playCollection } from '@/lib/providers'
+import { useUiStore } from '@/stores/ui'
 import type { CollectionItem } from '@/types/music'
 
 type QuickTileProps = {
@@ -11,16 +11,14 @@ type QuickTileProps = {
 }
 
 export function QuickTile({ item, className }: QuickTileProps) {
-  const playQueue = usePlayerStore((state) => state.playQueue)
+  const showToast = useUiStore((state) => state.showToast)
 
   return (
     <button
       type="button"
       onClick={() => {
-        const queue = tracksForCollection(item)
-        playQueue(queue, 0, {
-          type: item.kind === 'track' ? 'track' : item.kind,
-          label: item.title,
+        void playCollection(item).then((count) => {
+          if (!count) showToast('This tile has no playable tracks yet.')
         })
       }}
       className={cn(
@@ -28,7 +26,13 @@ export function QuickTile({ item, className }: QuickTileProps) {
         className,
       )}
     >
-      <Artwork seed={item.id} alt="" rounded="rounded-none" className="h-14 w-14 flex-shrink-0">
+      <Artwork
+        seed={item.id}
+        src={item.artwork}
+        alt=""
+        rounded="rounded-none"
+        className="h-14 w-14 flex-shrink-0"
+      >
         <span className="absolute inset-0 flex items-center justify-center bg-surface-container-lowest/25">
           <Icon name="music_note" size="sm" className="text-white/80" />
         </span>

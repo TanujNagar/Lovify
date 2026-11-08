@@ -1,32 +1,109 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from '@/components/brand/Icon'
 import { ArtistCircle } from '@/components/media/ArtistCircle'
-import { artists, albums } from '@/data/mock'
 import { initials } from '@/lib/artwork'
-import { getYouTubeKey } from '@/lib/youtube'
+import { getHistoryStats } from '@/lib/db'
 import { useLibraryStore } from '@/stores/library'
+import { useSourcesStore } from '@/stores/sources'
 import { useThemeStore } from '@/stores/theme'
 import { useUiStore } from '@/stores/ui'
+import type { Artist, HistoryEntry } from '@/types/music'
 
-const plays = ['8.4k plays', '5.1k plays', '4.9k plays', '3.2k plays']
+type TopArtist = Artist & { plays: number }
+
+function topArtistsFrom(history: HistoryEntry[]): TopArtist[] {
+  const map = new Map<string, TopArtist>()
+  for (const entry of history) {
+    const { track } = entry
+    const existing = map.get(track.artistId)
+    if (existing) {
+      existing.plays += 1
+    } else {
+      map.set(track.artistId, {
+        id: track.artistId,
+        provider: track.provider,
+        providerId: track.artistId,
+        name: track.artist,
+        artwork: track.artwork,
+        plays: 1,
+      })
+    }
+  }
+  return Array.from(map.values())
+    .sort((a, b) => b.plays - a.plays)
+    .slice(0, 6)
+}
+
+function topGenreFrom(history: HistoryEntry[]): { name: string; share: string } | null {
+  const counts = new Map<string, number>()
+  let total = 0
+  for (const entry of history) {
+    const genre = entry.track.genre?.trim()
+    if (!genre) continue
+    counts.set(genre, (counts.get(genre) ?? 0) + 1)
+    total += 1
+  }
+  if (!counts.size || total === 0) return null
+  const [name, count] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]
+  return { name, share: `${Math.round((count / total) * 100)}% of tagged plays` }
+}
+
+function peakRhythmFrom(history: HistoryEntry[]): { label: string; window: string } | null {
+  if (!history.length) return null
+  const counts = new Map<number, number>()
+  for (const entry of history) {
+    const hour = new Date(entry.playedAt).getHours()
+    counts.set(hour, (counts.get(hour) ?? 0) + 1)
+  }
+  const [hour] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]
+  const end = (hour + 3) % 24
+  const pad = (value: number) => `${String(value).padStart(2, '0')}:00`
+  const label =
+    hour >= 22 || hour < 5
+      ? 'Night owl'
+      : hour < 12
+        ? 'Morning listener'
+        : hour < 17
+          ? 'Afternoon drift'
+          : 'Evening calm'
+  return { label, window: `${pad(hour)} – ${pad(end)}` }
+}
 
 export function ProfileScreen() {
   const playlists = useLibraryStore((state) => state.playlists)
   const likedIds = useLibraryStore((state) => state.likedIds)
+  const history = useLibraryStore((state) => state.history)
+  const loaded = useLibraryStore((state) => state.loaded)
+  const loadLibrary = useLibraryStore((state) => state.load)
   const theme = useThemeStore((state) => state.theme)
   const showToast = useUiStore((state) => state.showToast)
-  const [hasKey, setHasKey] = useState(false)
+  const youtube = useSourcesStore((state) => state.youtube)
+  const jamendo = useSourcesStore((state) => state.jamendo)
+  const refreshSources = useSourcesStore((state) => state.refresh)
+
+  const [stats, setStats] = useState({ plays: 0, minutes: 0 })
+
+  useEffect(() => {
+    if (!loaded) void loadLibrary()
+    void refreshSources()
+  }, [loadLibrary, loaded, refreshSources])
 
   useEffect(() => {
     let active = true
-    void getYouTubeKey().then((key) => {
-      if (active) setHasKey(Boolean(key))
-    })
+    void getHistoryStats()
+      .then((next) => {
+        if (active) setStats(next)
+      })
+      .catch(() => undefined)
     return () => {
       active = false
     }
-  }, [])
+  }, [history.length])
+
+  const topArtists = useMemo(() => topArtistsFrom(history), [history])
+  const topGenre = useMemo(() => topGenreFrom(history), [history])
+  const peakRhythm = useMemo(() => peakRhythmFrom(history), [history])
 
   const shareProfile = async () => {
     const url = window.location.origin
@@ -36,11 +113,17 @@ export function ProfileScreen() {
         return
       }
       await navigator.clipboard.writeText(url)
-      showToast('Profile link copied.')
+      showToast('Lovify link copied.')
     } catch {
       showToast('Sharing is not available in this browser.')
     }
   }
+
+  const sourceSummary = [
+    'Audius',
+    jamendo ? 'Jamendo' : null,
+    youtube.available ? 'YouTube' : null,
+  ].filter(Boolean) as string[]
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col px-margin pb-10">
@@ -73,7 +156,7 @@ export function ProfileScreen() {
           Elena Vance
         </h2>
         <p className="mt-0.5 font-body-md text-body-md text-on-surface-variant">
-          @elenavance • Joined 2023
+          @elenavance · On this device
         </p>
 
         <div className="mt-space-sm inline-flex items-center gap-1.5 rounded-full bg-surface-container-high px-3 py-1 shadow-sm">
@@ -85,18 +168,20 @@ export function ProfileScreen() {
 
         <div className="my-space-lg flex w-full max-w-xs items-center justify-center gap-space-lg rounded-xl bg-surface-container-low py-space-sm">
           <div className="flex flex-col items-center">
-            <span className="font-title-md text-title-md text-on-surface">{playlists.length || 4}</span>
+            <span className="font-title-md text-title-md text-on-surface">
+              {playlists.filter((playlist) => playlist.system !== 'liked').length}
+            </span>
             <span className="font-caption text-caption text-on-surface-variant">Playlists</span>
           </div>
           <div className="h-1 w-1 rounded-full bg-surface-variant" />
           <div className="flex flex-col items-center">
-            <span className="font-title-md text-title-md text-on-surface">{likedIds.length || 4}</span>
+            <span className="font-title-md text-title-md text-on-surface">{likedIds.length}</span>
             <span className="font-caption text-caption text-on-surface-variant">Liked songs</span>
           </div>
           <div className="h-1 w-1 rounded-full bg-surface-variant" />
           <div className="flex flex-col items-center">
-            <span className="font-title-md text-title-md text-on-surface">{albums.length}</span>
-            <span className="font-caption text-caption text-on-surface-variant">Albums</span>
+            <span className="font-title-md text-title-md text-on-surface">{topArtists.length}</span>
+            <span className="font-caption text-caption text-on-surface-variant">Artists</span>
           </div>
         </div>
 
@@ -105,12 +190,12 @@ export function ProfileScreen() {
             to="/settings"
             className="flex min-h-11 flex-1 items-center justify-center rounded-full bg-primary-container font-label-lg text-label-lg text-on-primary-container shadow-[0_4px_16px_rgba(249,87,115,0.25)] transition-all hover:brightness-105 active:scale-95"
           >
-            Edit profile
+            Open settings
           </Link>
           <button
             type="button"
             onClick={() => void shareProfile()}
-            aria-label="Share profile"
+            aria-label="Share Lovify"
             className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-container-high text-on-surface transition-colors hover:text-primary"
           >
             <Icon name="share" />
@@ -131,7 +216,9 @@ export function ProfileScreen() {
             <Icon name="headphones" size="sm" className="text-primary" />
           </div>
           <div>
-            <div className="font-title-lg text-title-lg tracking-tight text-on-surface">38,420</div>
+            <div className="font-title-lg text-title-lg tracking-tight text-on-surface">
+              {stats.minutes.toLocaleString('en')}
+            </div>
             <div className="mt-2 flex h-4 items-end gap-1" aria-hidden="true">
               <div className="h-2 flex-1 rounded-full bg-surface-variant" />
               <div className="h-3 flex-1 rounded-full bg-surface-variant" />
@@ -148,9 +235,11 @@ export function ProfileScreen() {
             <Icon name="album" size="sm" className="text-tertiary" />
           </div>
           <div>
-            <div className="truncate font-title-md text-title-md text-[16px] text-on-surface">Nocturne ambient</div>
+            <div className="truncate font-title-md text-title-md text-[16px] text-on-surface">
+              {topGenre?.name ?? 'Still discovering'}
+            </div>
             <div className="mt-1 font-caption text-caption text-on-surface-variant">
-              42% of listening sessions
+              {topGenre?.share ?? 'Tagged genres appear after a few plays'}
             </div>
           </div>
         </div>
@@ -161,9 +250,11 @@ export function ProfileScreen() {
             <Icon name="graphic_eq" size="sm" className="text-primary" />
           </div>
           <div>
-            <div className="font-title-lg text-title-lg text-on-surface">1,284</div>
+            <div className="font-title-lg text-title-lg text-on-surface">
+              {stats.plays.toLocaleString('en')}
+            </div>
             <div className="mt-1 font-caption text-caption text-on-surface-variant">
-              From your local library
+              Recorded from your listening on this device
             </div>
           </div>
         </div>
@@ -174,9 +265,11 @@ export function ProfileScreen() {
             <Icon name="bedtime" size="sm" className="text-secondary" />
           </div>
           <div>
-            <div className="font-title-lg text-title-lg text-on-surface">Night owl</div>
+            <div className="font-title-lg text-title-lg text-on-surface">
+              {peakRhythm?.label ?? 'Not enough data'}
+            </div>
             <div className="mt-1 font-caption text-caption text-on-surface-variant">
-              11:00 PM – 3:00 AM
+              {peakRhythm?.window ?? 'Play a few tracks to see your rhythm'}
             </div>
           </div>
         </div>
@@ -185,17 +278,34 @@ export function ProfileScreen() {
       <section className="mb-6">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="font-title-lg text-title-lg tracking-tight text-on-surface">
-            Top artists this month
+            Top artists from your history
           </h3>
           <Link to="/explore" className="flex min-h-11 items-center font-label-md text-label-md text-primary">
-            See all
+            Explore
           </Link>
         </div>
-        <div className="-mx-margin flex items-center gap-space-md overflow-x-auto px-margin pb-2 no-scrollbar">
-          {artists.slice(0, 4).map((artist, index) => (
-            <ArtistCircle key={artist.id} artist={artist} size="sm" subtitle={plays[index]} />
-          ))}
-        </div>
+        {topArtists.length > 0 ? (
+          <div className="-mx-margin flex items-center gap-space-md overflow-x-auto px-margin pb-2 no-scrollbar">
+            {topArtists.slice(0, 4).map((artist) => (
+              <ArtistCircle
+                key={artist.id}
+                artist={artist}
+                size="sm"
+                subtitle={`${artist.plays} ${artist.plays === 1 ? 'play' : 'plays'}`}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 rounded-xl bg-surface-container-low p-4">
+            <Icon name="history" className="text-primary" />
+            <div>
+              <p className="font-title-md text-title-md text-on-surface">Your history starts here</p>
+              <p className="font-body-md text-body-md text-on-surface-variant">
+                Play something from Search or Home and the artists you return to will appear.
+              </p>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="relative mb-6 overflow-hidden rounded-xl bg-gradient-to-br from-surface-container-high via-surface-container to-surface-container-low p-space-lg shadow-lg">
@@ -215,16 +325,16 @@ export function ProfileScreen() {
           </span>
         </div>
         <p className="relative z-10 mb-space-md font-body-md text-body-md leading-relaxed text-on-surface-variant">
-          Your playlists, likes and history stay in this browser. The app shell works offline, and
-          free music sources arrive in Phase 2.
+          Your playlists, likes and history stay in this browser. Music comes from {sourceSummary.join(', ')}.
+          The app shell keeps working offline.
         </p>
         <Link
           to="/settings"
           className="relative z-10 flex min-h-11 items-center justify-between rounded-lg bg-surface-container-lowest/40 p-2.5"
         >
           <span className="flex items-center gap-1.5 font-caption text-caption text-on-surface-variant">
-            <span className="h-2 w-2 rounded-full bg-primary-container" />
-            Music source: local demo library
+            <span className={`h-2 w-2 rounded-full ${youtube.blocked ? 'bg-error' : 'bg-primary-container'}`} />
+            Music sources: {sourceSummary.join(' · ')}
           </span>
           <span className="font-label-md text-label-md font-semibold text-primary">Manage</span>
         </Link>
@@ -238,22 +348,28 @@ export function ProfileScreen() {
           subtitle={theme === 'dark' ? 'Dark theme · On' : 'Light theme · On'}
         />
         <SettingsRow
-          to="/settings"
-          icon="equalizer"
-          title="Playback options"
-          subtitle="Queue, crossfade and audio lab arrive in Phase 2"
+          to="/queue"
+          icon="queue_music"
+          title="Playback & queue"
+          subtitle="Reorder, repeat and shuffle from the queue"
         />
         <SettingsRow
           to="/settings"
           icon="storage"
           title="Storage & cache"
-          subtitle="Local-first IndexedDB · No downloads yet"
+          subtitle="Local-first IndexedDB · Search cache clears on demand"
         />
         <SettingsRow
           to="/settings"
           icon="verified"
-          title="YouTube API key"
-          subtitle={hasKey ? 'Your own key is saved in this browser' : 'Optional · Use your own quota'}
+          title="Music source keys"
+          subtitle={
+            youtube.mode === 'user'
+              ? 'Your own YouTube key is saved in this browser'
+              : youtube.available
+                ? 'Shared YouTube key · add your own to save quota'
+                : 'Optional · Audius works without any key'
+          }
         />
       </div>
     </div>

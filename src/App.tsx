@@ -1,12 +1,26 @@
 import { Suspense, lazy, useEffect } from 'react'
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
+import { Toaster } from '@/components/layout/Toaster'
+import { PlaybackHost } from '@/components/player/PlaybackHost'
+import { restorePlayer, startPlayerPersistence } from '@/lib/player-persistence'
 import { HomeScreen } from '@/screens/Home'
 import { useLibraryStore } from '@/stores/library'
+import { useSourcesStore } from '@/stores/sources'
 
 const CollectionDetailScreen = lazy(() =>
   import('@/screens/CollectionDetail').then((module) => ({
     default: module.CollectionDetailScreen,
+  })),
+)
+const CreatePlaylistSheet = lazy(() =>
+  import('@/components/playlist/CreatePlaylistSheet').then((module) => ({
+    default: module.CreatePlaylistSheet,
+  })),
+)
+const TrackActionsSheet = lazy(() =>
+  import('@/components/media/TrackActionsSheet').then((module) => ({
+    default: module.TrackActionsSheet,
   })),
 )
 const ExploreScreen = lazy(() =>
@@ -14,6 +28,9 @@ const ExploreScreen = lazy(() =>
 )
 const LibraryScreen = lazy(() =>
   import('@/screens/Library').then((module) => ({ default: module.LibraryScreen })),
+)
+const LyricsScreen = lazy(() =>
+  import('@/screens/Lyrics').then((module) => ({ default: module.LyricsScreen })),
 )
 const NotFoundScreen = lazy(() =>
   import('@/screens/NotFound').then((module) => ({ default: module.NotFoundScreen })),
@@ -46,6 +63,7 @@ const titles: Array<[RegExp, string]> = [
   [/^\/settings/, 'Settings · Lovify'],
   [/^\/queue/, 'Queue · Lovify'],
   [/^\/player/, 'Now Playing · Lovify'],
+  [/^\/lyrics/, 'Lyrics · Lovify'],
   [/^\/offline/, 'Offline · Lovify'],
   [/^\/playlist\//, 'Playlist · Lovify'],
   [/^\/album\//, 'Album · Lovify'],
@@ -65,15 +83,31 @@ function AppEffects() {
   const location = useLocation()
 
   useEffect(() => {
+    let active = true
+    let stopPersistence: (() => void) | undefined
+
+    void restorePlayer().then(() => {
+      if (active) stopPersistence = startPlayerPersistence()
+    })
+    void useSourcesStore.getState().refresh()
+
     // Local library hydration is not needed for the first paint. Let the
     // browser settle before opening IndexedDB so it never delays interaction.
     const load = () => void useLibraryStore.getState().load()
+    let idleId: number | undefined
+    let timer: number | undefined
     if (typeof window.requestIdleCallback === 'function') {
-      const id = window.requestIdleCallback(load, { timeout: 1200 })
-      return () => window.cancelIdleCallback(id)
+      idleId = window.requestIdleCallback(load, { timeout: 1200 })
+    } else {
+      timer = window.setTimeout(load, 200)
     }
-    const timer = window.setTimeout(load, 200)
-    return () => window.clearTimeout(timer)
+
+    return () => {
+      active = false
+      stopPersistence?.()
+      if (idleId !== undefined) window.cancelIdleCallback(idleId)
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
   }, [])
 
   useEffect(() => {
@@ -95,9 +129,16 @@ export default function App() {
   return (
     <BrowserRouter>
       <AppEffects />
+      <PlaybackHost />
+      <Suspense fallback={null}>
+        <CreatePlaylistSheet />
+        <TrackActionsSheet />
+      </Suspense>
+      <Toaster />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/player" element={<PlayerScreen />} />
+          <Route path="/lyrics" element={<LyricsScreen />} />
           <Route element={<AppShell />}>
             <Route path="/" element={<HomeScreen />} />
             <Route path="/search" element={<SearchScreen />} />

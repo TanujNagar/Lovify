@@ -1,18 +1,10 @@
-import { Suspense, lazy } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { BottomNav } from '@/components/layout/BottomNav'
 import { DesktopSidebar } from '@/components/layout/DesktopSidebar'
 import { InstallPrompt } from '@/components/layout/InstallPrompt'
 import { OfflineBanner } from '@/components/layout/OfflineBanner'
-import { Toaster } from '@/components/layout/Toaster'
 import { TopBar } from '@/components/layout/TopBar'
 import { MiniPlayer } from '@/components/player/MiniPlayer'
-
-const CreatePlaylistSheet = lazy(() =>
-  import('@/components/playlist/CreatePlaylistSheet').then((module) => ({
-    default: module.CreatePlaylistSheet,
-  })),
-)
 
 export function AppShell() {
   const location = useLocation()
@@ -53,10 +45,6 @@ export function AppShell() {
       )}
 
       <InstallPrompt />
-      <Toaster />
-      <Suspense fallback={null}>
-        <CreatePlaylistSheet />
-      </Suspense>
     </div>
   )
 }

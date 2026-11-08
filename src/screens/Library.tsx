@@ -1,14 +1,16 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Icon } from '@/components/brand/Icon'
+import { PlaylistManageSheet } from '@/components/playlist/PlaylistManageSheet'
 import { AlbumCard } from '@/components/media/AlbumCard'
 import { Artwork } from '@/components/media/Artwork'
 import { ArtistCircle } from '@/components/media/ArtistCircle'
 import { Chip } from '@/components/ui/Chip'
-import { albums, artists, initialPlaylists, tracks } from '@/data/mock'
 import { cn } from '@/lib/cn'
+import { getTracksByIds } from '@/lib/db'
 import { useLibraryStore } from '@/stores/library'
 import { useUiStore } from '@/stores/ui'
+import type { Artist, Playlist, Track } from '@/types/music'
 
 type LibraryRow = {
   id: string
@@ -17,9 +19,10 @@ type LibraryRow = {
   subtitle: string
   href: string
   meta: string
+  artwork?: string
   verified?: boolean
   pinned?: boolean
-  trackCount?: number
+  playlistId?: string
 }
 
 const filters = [
@@ -33,6 +36,7 @@ export function LibraryScreen() {
   const navigate = useNavigate()
   const playlists = useLibraryStore((state) => state.playlists)
   const likedIds = useLibraryStore((state) => state.likedIds)
+  const history = useLibraryStore((state) => state.history)
   const openCreatePlaylist = useUiStore((state) => state.openCreatePlaylist)
   const showToast = useUiStore((state) => state.showToast)
 
@@ -41,15 +45,101 @@ export function LibraryScreen() {
   const [view, setView] = useState<'list' | 'grid'>('list')
   const [searchOpen, setSearchOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const [downloadedOnly, setDownloadedOnly] = useState(false)
+  const [cachedTracks, setCachedTracks] = useState<Track[]>([])
+  const [managed, setManaged] = useState<Playlist | null>(null)
 
-  const effectivePlaylists = playlists.length > 0 ? playlists : initialPlaylists
+  useEffect(() => {
+    const ids = Array.from(
+      new Set([
+        ...likedIds,
+        ...history.map((entry) => entry.track.id),
+        ...playlists.flatMap((playlist) => playlist.trackIds),
+      ]),
+    )
+    if (!ids.length) {
+      setCachedTracks([])
+      return
+    }
+    let active = true
+    void getTracksByIds(ids)
+      .then((tracks) => {
+        if (active) setCachedTracks(tracks)
+      })
+      .catch(() => {
+        if (active) setCachedTracks([])
+      })
+    return () => {
+      active = false
+    }
+  }, [history, likedIds, playlists])
+
+  const { albumRows, artists } = useMemo(() => {
+    const albums = new Map<string, LibraryRow & { artist: string; year: number; count: number }>()
+    const artistMap = new Map<string, Artist>()
+
+    for (const track of cachedTracks) {
+      if (track.artistId && !artistMap.has(track.artistId)) {
+        artistMap.set(track.artistId, {
+          id: track.artistId,
+          provider: track.provider,
+          providerId: track.providerId,
+          name: track.artist,
+          artwork: track.artwork,
+        })
+      }
+
+      if (!track.albumId) continue
+      const existing = albums.get(track.albumId)
+      if (existing) {
+        existing.count += 1
+      } else {
+        albums.set(track.albumId, {
+          id: track.albumId,
+          kind: 'album',
+          title: track.album || track.title,
+          subtitle: `${track.artist} · ${track.provider}`,
+          href: `/album/${track.albumId}`,
+          meta: '1 track',
+          artwork: track.artwork,
+          artist: track.artist,
+          year: track.year ?? 0,
+          count: 1,
+        })
+      }
+    }
+
+    return {
+      albumRows: Array.from(albums.values()).map((row) => ({
+        ...row,
+        subtitle: `${row.artist}${row.year ? ` · ${row.year}` : ''}`,
+        meta: `${row.count} track${row.count === 1 ? '' : 's'}`,
+      })),
+      artists: Array.from(artistMap.values()),
+    }
+  }, [cachedTracks])
+
+  const artistRows = useMemo<LibraryRow[]>(
+    () =>
+      artists.map((artist) => {
+        const count = cachedTracks.filter((track) => track.artistId === artist.id).length
+        return {
+          id: artist.id,
+          kind: 'artist',
+          title: artist.name,
+          subtitle: `Artist · ${count} track${count === 1 ? '' : 's'}`,
+          href: `/artist/${artist.id}`,
+          meta: 'Artist',
+          artwork: artist.artwork,
+        }
+      }),
+    [artists, cachedTracks],
+  )
 
   const rows = useMemo<LibraryRow[]>(() => {
     const normalized = search.trim().toLowerCase()
     const matches = (title: string) => !normalized || title.toLowerCase().includes(normalized)
 
-    const playlistRows: LibraryRow[] = effectivePlaylists
+    const playlistRows: LibraryRow[] = playlists
       .filter((playlist) => playlist.system !== 'liked')
       .map((playlist) => ({
         id: playlist.id,
@@ -57,32 +147,25 @@ export function LibraryScreen() {
         title: playlist.name,
         subtitle:
           playlist.description ||
-          `${playlist.trackIds.length} tracks • ${playlist.id.startsWith('playlist-') ? 'Created by you' : 'Curated'}`,
+          `${playlist.trackIds.length} tracks · ${playlist.trackIds.length ? 'Created by you' : 'Empty playlist'}`,
         href: `/playlist/${playlist.id}`,
         meta: `${playlist.trackIds.length} tracks`,
+        artwork: cachedTracks.find((track) => playlist.trackIds.includes(track.id))?.artwork,
+        playlistId: playlist.id,
       }))
 
-    const albumRows: LibraryRow[] = albums.map((album) => ({
-      id: album.id,
-      kind: 'album',
-      title: album.title,
-      subtitle: `${album.artist} • ${album.kind} • ${album.year}`,
-      href: `/album/${album.id}`,
-      meta: `${album.trackIds.length} tracks`,
-    }))
-
-    const artistRows: LibraryRow[] = artists.map((artist) => ({
-      id: artist.id,
-      kind: 'artist',
-      title: artist.name,
-      subtitle: `Artist • ${tracks.filter((track) => track.artistId === artist.id).length} tracks`,
-      href: `/artist/${artist.id}`,
-      meta: 'Artist',
-      verified: artist.verified,
-    }))
+    const likedRow: LibraryRow = {
+      id: 'playlist-liked',
+      kind: 'liked',
+      title: 'Liked Songs',
+      subtitle: `Playlist · ${likedIds.length} tracks`,
+      href: '/playlist/playlist-liked',
+      meta: `${likedIds.length} tracks`,
+      pinned: true,
+      artwork: cachedTracks.find((track) => likedIds.includes(track.id))?.artwork,
+    }
 
     let result: LibraryRow[] = []
-
     if (filter === 'albums') {
       result = albumRows
     } else if (filter === 'artists') {
@@ -90,46 +173,17 @@ export function LibraryScreen() {
     } else if (filter === 'downloaded') {
       result = []
     } else {
-      const currentLiked = likedIds.length > 0 ? likedIds : initialPlaylists[0]?.trackIds ?? []
-      const likedRow: LibraryRow = {
-        id: 'playlist-liked',
-        kind: 'liked',
-        title: 'Liked Songs',
-        subtitle: `Playlist • ${currentLiked.length} tracks`,
-        href: '/playlist/playlist-liked',
-        meta: `${currentLiked.length} tracks`,
-        pinned: true,
-        trackCount: currentLiked.length,
-      }
-
-      // The Stitch "Playlists" view mixes pinned playlists, recent albums and
-      // the artist you opened last. Keep that feel while real filters stay live.
-      const featured: LibraryRow[] = []
-      const atmospheric = playlistRows.find((row) => row.id === 'playlist-atmospheric-focus')
-      const midnight = albumRows.find((row) => row.id === 'album-midnight-reverie')
-      const lunar = artistRows.find((row) => row.id === 'artist-lunar-collective')
-      const voidEp = albumRows.find((row) => row.id === 'album-echoes-of-the-void')
-      if (atmospheric) featured.push(atmospheric)
-      if (midnight) featured.push(midnight)
-      if (lunar) featured.push(lunar)
-      if (voidEp) featured.push(voidEp)
-
-      const remainingPlaylists = playlistRows.filter(
-        (row) => row.id !== 'playlist-atmospheric-focus',
-      )
-      result = [likedRow, ...featured, ...remainingPlaylists]
+      result = [likedRow, ...playlistRows]
     }
 
     result = result.filter((row) => matches(row.title))
-
     if (sort === 'name') {
       result = [...result].sort((a, b) => a.title.localeCompare(b.title))
     }
-
     return result
-  }, [effectivePlaylists, filter, likedIds, search, sort])
+  }, [albumRows, artistRows, cachedTracks, filter, likedIds, playlists, search, sort])
 
-  const isDownloadedEmpty = filter === 'downloaded' || (downloadedOnly && rows.length === 0)
+  const isDownloadedEmpty = filter === 'downloaded'
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col px-margin">
@@ -152,7 +206,7 @@ export function LibraryScreen() {
           </button>
           <button
             type="button"
-            onClick={openCreatePlaylist}
+            onClick={() => openCreatePlaylist()}
             className="flex h-11 items-center gap-1.5 rounded-full bg-surface-container-high px-3.5 text-primary transition-colors hover:bg-surface-variant active:scale-95"
           >
             <Icon name="add" size="sm" />
@@ -191,10 +245,7 @@ export function LibraryScreen() {
             key={item.id}
             active={filter === item.id}
             icon={item.icon}
-            onClick={() => {
-              setFilter(item.id)
-              if (item.id === 'downloaded') setDownloadedOnly(true)
-            }}
+            onClick={() => setFilter(item.id)}
           >
             {item.label}
           </Chip>
@@ -212,26 +263,10 @@ export function LibraryScreen() {
           <span>{sort === 'recent' ? 'Most Recent' : 'Name A–Z'}</span>
         </button>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setDownloadedOnly((active) => !active)}
-            aria-pressed={downloadedOnly}
-            className={cn(
-              'flex min-h-11 items-center gap-1.5 rounded-full px-2.5 font-label-md text-label-md transition-colors',
-              downloadedOnly
-                ? 'bg-secondary-container text-on-secondary-container'
-                : 'bg-surface-container text-on-surface-variant hover:text-on-surface',
-            )}
-          >
-            <Icon name="cloud_off" size="sm" />
-            <span>Downloaded only</span>
-            <span
-              className={cn(
-                'h-2 w-2 rounded-full transition-colors',
-                downloadedOnly ? 'bg-primary' : 'bg-outline-variant',
-              )}
-            />
-          </button>
+          <span className="flex min-h-11 items-center gap-1.5 rounded-full bg-surface-container px-2.5 font-label-md text-label-md text-on-surface-variant">
+            <Icon name="library_music" size="sm" />
+            {cachedTracks.length} cached
+          </span>
           <button
             type="button"
             onClick={() => setView((current) => (current === 'list' ? 'grid' : 'list'))}
@@ -256,8 +291,8 @@ export function LibraryScreen() {
               No offline downloads yet
             </h2>
             <p className="mb-4 max-w-[270px] font-body-md text-body-md leading-relaxed text-on-surface-variant">
-              Download free-source tracks and albums to keep the quiet hours close. Downloads arrive
-              in Phase 3.
+              Offline downloads arrive in Phase 3. Your playlists, likes and history already work
+              offline.
             </p>
             <button
               type="button"
@@ -265,18 +300,39 @@ export function LibraryScreen() {
               className="flex min-h-11 items-center gap-2 rounded-full bg-surface-container-high px-5 font-label-lg text-label-lg text-primary transition-colors hover:bg-secondary-container hover:text-on-secondary-container"
             >
               <Icon name="travel_explore" size="sm" />
-              <span>Explore downloadable music</span>
+              <span>Explore free music</span>
             </button>
-            <div className="pointer-events-none absolute -bottom-8 -right-8 h-28 w-28 rounded-full bg-primary/5 blur-2xl" />
-            <div className="pointer-events-none absolute -left-8 -top-8 h-28 w-28 rounded-full bg-secondary-container/10 blur-2xl" />
           </div>
         ) : rows.length === 0 ? (
           <div className="mt-4 rounded-xl bg-surface-container-low p-8 text-center">
-            <Icon name="search" className="text-primary" />
-            <p className="mt-3 font-title-md text-title-md text-on-surface">Nothing matches yet</p>
-            <p className="mt-1 font-body-md text-body-md text-on-surface-variant">
-              Try another filter or create a new playlist.
+            <Icon name={filter === 'albums' || filter === 'artists' ? 'music_note' : 'queue_music'} className="text-primary" />
+            <p className="mt-3 font-title-md text-title-md text-on-surface">
+              {filter === 'albums' || filter === 'artists'
+                ? 'Nothing cached yet'
+                : 'No playlists yet'}
             </p>
+            <p className="mt-1 font-body-md text-body-md text-on-surface-variant">
+              {filter === 'albums' || filter === 'artists'
+                ? 'Play or save a track and its album and artist will appear here.'
+                : 'Create your first playlist, or save a track from search.'}
+            </p>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => openCreatePlaylist()}
+                className="flex min-h-11 items-center gap-2 rounded-full bg-primary-container px-5 font-label-lg text-label-lg text-on-primary-container"
+              >
+                <Icon name="add" size="sm" />
+                New playlist
+              </button>
+              <Link
+                to="/search"
+                className="flex min-h-11 items-center gap-2 rounded-full bg-surface-container-high px-5 font-label-lg text-label-lg text-on-surface"
+              >
+                <Icon name="search" size="sm" />
+                Search music
+              </Link>
+            </div>
           </div>
         ) : view === 'list' ? (
           <div className="flex flex-col gap-1.5">
@@ -284,7 +340,10 @@ export function LibraryScreen() {
               <LibraryListRow
                 key={`${row.kind}-${row.id}`}
                 row={row}
-                onMore={() => showToast('Library item options are coming in Phase 3.')}
+                onManage={() => {
+                  const playlist = playlists.find((item) => item.id === row.playlistId)
+                  if (playlist) setManaged(playlist)
+                }}
               />
             ))}
           </div>
@@ -292,7 +351,12 @@ export function LibraryScreen() {
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {rows.map((row) =>
               row.kind === 'artist' ? (
-                <ArtistCircle key={row.id} artist={artists.find((artist) => artist.id === row.id)!} size="md" className="w-full" />
+                <ArtistCircle
+                  key={row.id}
+                  artist={artists.find((artist) => artist.id === row.id)!}
+                  size="md"
+                  className="w-full"
+                />
               ) : (
                 <AlbumCard
                   key={`${row.kind}-${row.id}`}
@@ -300,8 +364,9 @@ export function LibraryScreen() {
                     id: row.id,
                     title: row.title,
                     subtitle: row.subtitle,
-                    kind: row.kind === 'liked' ? 'playlist' : row.kind,
+                    kind: row.kind === 'liked' || row.kind === 'playlist' ? 'playlist' : 'album',
                     href: row.href,
+                    artwork: row.artwork,
                   }}
                   label={row.kind === 'liked' ? 'Pinned' : undefined}
                 />
@@ -310,11 +375,17 @@ export function LibraryScreen() {
           </div>
         )}
       </div>
+
+      <PlaylistManageSheet
+        playlist={managed}
+        onClose={() => setManaged(null)}
+        onDeleted={() => showToast('Playlist deleted.')}
+      />
     </div>
   )
 }
 
-function LibraryListRow({ row, onMore }: { row: LibraryRow; onMore: () => void }) {
+function LibraryListRow({ row, onManage }: { row: LibraryRow; onManage: () => void }) {
   return (
     <div className="group flex items-center justify-between rounded-xl bg-surface-container-low p-2.5 transition-colors hover:bg-surface-container">
       <Link to={row.href} className="flex min-w-0 flex-1 items-center gap-3">
@@ -334,6 +405,7 @@ function LibraryListRow({ row, onMore }: { row: LibraryRow; onMore: () => void }
           >
             <Artwork
               seed={row.id}
+              src={row.artwork}
               alt=""
               rounded={row.kind === 'artist' ? 'rounded-full' : 'rounded-xl'}
               className="h-full w-full"
@@ -351,26 +423,23 @@ function LibraryListRow({ row, onMore }: { row: LibraryRow; onMore: () => void }
             )}
           </div>
           <div className="mt-0.5 flex min-w-0 items-center gap-1.5 truncate font-body-md text-body-md text-on-surface-variant">
-            {row.kind === 'liked' && (
-              <Icon name="check_circle" filled size="sm" className="flex-shrink-0 text-primary" />
-            )}
             <span className="truncate">{row.subtitle}</span>
           </div>
         </div>
       </Link>
 
       <div className="flex flex-shrink-0 items-center gap-1 pl-2">
-        {row.kind === 'liked' ? (
-          <Icon name="chevron_right" className="text-on-surface-variant" />
-        ) : (
+        {row.kind === 'playlist' ? (
           <button
             type="button"
-            onClick={onMore}
+            onClick={onManage}
             aria-label={`More options for ${row.title}`}
             className="flex h-11 w-11 items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface"
           >
             <Icon name="more_vert" />
           </button>
+        ) : (
+          <Icon name="chevron_right" className="text-on-surface-variant" />
         )}
       </div>
     </div>
