@@ -10,6 +10,7 @@ import { ProviderError } from '@/lib/providers/types'
 import { useCatalogStore } from '@/stores/catalog'
 import { usePlayerStore } from '@/stores/player'
 import { useUiStore } from '@/stores/ui'
+import { VibeRadioSlider } from '@/components/player/VibeRadioSlider'
 
 export function ExploreScreen() {
   const trending = useCatalogStore((state) => state.trending)
@@ -24,18 +25,6 @@ export function ExploreScreen() {
   useEffect(() => {
     void load()
   }, [load])
-
-  const playVibeRadio = (shuffle = false) => {
-    if (!trending.length) {
-      showToast('Free music is still loading. Try again in a moment.')
-      return
-    }
-    const queue = shuffle
-      ? [...trending].sort(() => Math.random() - 0.5).slice(0, 20)
-      : trending.slice(0, 20)
-    playQueue(queue, 0, { type: 'radio', label: 'Vibe Radio' })
-    if (shuffle) showToast('A fresh Vibe Radio mix is playing.')
-  }
 
   const playQuery = async (query: string, label: string) => {
     if (busy) return
@@ -80,46 +69,7 @@ export function ExploreScreen() {
         </button>
       </div>
 
-      <section className="relative mb-7 overflow-hidden rounded-2xl bg-gradient-to-br from-secondary-container via-surface-container-high to-surface-container-lowest p-5 shadow-[0_16px_48px_rgba(0,0,0,0.35)]">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-primary-container/25 blur-3xl" />
-        <div className="relative z-10 flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-primary-container" />
-              <span className="font-caption text-caption font-semibold uppercase tracking-[0.16em] text-primary">
-                Vibe Radio
-              </span>
-            </div>
-            <h2 className="mt-2 font-headline-md text-headline-md leading-tight text-on-surface">
-              Your night, in motion
-            </h2>
-            <p className="mt-1 max-w-[250px] font-body-md text-body-md leading-relaxed text-on-surface-variant">
-              An auto-generated mix shaped by trending free music. It changes as you do.
-            </p>
-          </div>
-          <span className="hidden h-20 w-20 flex-shrink-0 items-center justify-center rounded-2xl bg-surface-container-lowest/30 text-primary sm:flex">
-            <Icon name="graphic_eq" size="lg" />
-          </span>
-        </div>
-        <div className="relative z-10 mt-5 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => playVibeRadio()}
-            className="flex min-h-11 items-center gap-2 rounded-full bg-primary-container px-5 font-label-lg text-label-lg text-on-primary-container shadow-[0_4px_16px_rgba(249,87,115,0.4)]"
-          >
-            <Icon name="play_arrow" filled size="sm" />
-            Play Vibe Radio
-          </button>
-          <button
-            type="button"
-            onClick={() => playVibeRadio(true)}
-            className="flex min-h-11 items-center gap-2 rounded-full bg-surface-container-lowest/25 px-4 font-label-lg text-label-lg text-on-surface backdrop-blur-sm"
-          >
-            <Icon name="refresh" size="sm" />
-            Regenerate
-          </button>
-        </div>
-      </section>
+      <VibeRadioSlider />
 
       {!hasCatalog && loading && (
         <div className="mb-7 grid grid-cols-2 gap-3" aria-busy="true">
