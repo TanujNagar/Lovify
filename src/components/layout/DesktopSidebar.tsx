@@ -58,12 +58,12 @@ export function DesktopSidebar() {
           <div>
             <p className="font-title-md text-title-md text-on-surface">Lovify Free</p>
             <p className="font-caption text-caption uppercase tracking-wide text-primary">
-              Local demo library
+              Local-first library
             </p>
           </div>
         </div>
         <p className="mt-2 font-body-md text-body-md text-on-surface-variant">
-          Offline shell ready. Free music providers arrive in Phase 2.
+          Your playlists, likes and history stay on this device.
         </p>
         <NavLink
           to="/settings"

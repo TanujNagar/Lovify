@@ -46,6 +46,7 @@ export function MiniPlayer({ className }: MiniPlayerProps) {
           src={track.artwork}
           alt=""
           rounded="rounded-lg"
+          requestWidth={48}
           className="h-10 w-10 flex-shrink-0"
         >
           <span className="absolute inset-0 flex items-center justify-center">

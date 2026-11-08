@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { artworkStyle } from '@/lib/artwork'
+import { artworkAtWidth, artworkStyle } from '@/lib/artwork'
 import { cn } from '@/lib/cn'
 
 type ArtworkProps = {
@@ -10,6 +10,8 @@ type ArtworkProps = {
   rounded?: string
   children?: ReactNode
   style?: CSSProperties
+  /** Approximate rendered width in CSS pixels; used to pick a smaller image. */
+  requestWidth?: number
 }
 
 export function Artwork({
@@ -20,10 +22,12 @@ export function Artwork({
   rounded = 'rounded-lg',
   children,
   style,
+  requestWidth = 480,
 }: ArtworkProps) {
   const [failed, setFailed] = useState(false)
-  const generated = artworkStyle(seed, `grain-${seed.replace(/[^a-z0-9]/gi, '')}`)
-  const showImage = Boolean(src) && !failed
+  const generated = artworkStyle(seed)
+  const resolvedSrc = artworkAtWidth(src, requestWidth)
+  const showImage = Boolean(resolvedSrc) && !failed
 
   useEffect(() => {
     setFailed(false)
@@ -43,7 +47,7 @@ export function Artwork({
     >
       {showImage ? (
         <img
-          src={src}
+          src={resolvedSrc}
           alt=""
           loading="lazy"
           decoding="async"

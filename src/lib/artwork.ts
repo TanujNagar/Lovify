@@ -92,26 +92,38 @@ function generatedPalette(seed: string): [string, string, string] {
   return [palette[0], palette[1], palette[2]]
 }
 
-export function artworkStyle(seed: string, id = 'art'): {
+const styleCache = new Map<string, { backgroundImage: string; backgroundColor: string }>()
+
+/**
+ * Soft generated cover used while provider artwork is missing or loading.
+ *
+ * Only gradients are used: the old SVG turbulence grain looked nice but every
+ * card rasterised a fractal-noise filter, which is very expensive on phones.
+ */
+export function artworkStyle(seed: string): {
   backgroundImage: string
   backgroundColor: string
 } {
+  const cached = styleCache.get(seed)
+  if (cached) return cached
+
   const [primary, secondary, background] = generatedPalette(seed)
   const angle = 115 + (hash(`${seed}-angle`) % 80)
   const x = 16 + (hash(`${seed}-x`) % 48)
   const y = 18 + (hash(`${seed}-y`) % 46)
 
-  return {
+  const style = {
     backgroundColor: background,
     backgroundImage: [
       `radial-gradient(ellipse at ${x}% ${y}%, ${primary} 0%, transparent 54%)`,
       `radial-gradient(ellipse at ${100 - x}% ${100 - y}%, ${secondary} 0%, transparent 62%)`,
       `linear-gradient(${angle}deg, ${secondary} 0%, ${background} 100%)`,
-      `url("data:image/svg+xml,${encodeURIComponent(
-        `<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='${id}'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(#${id})' opacity='0.18'/></svg>`,
-      )}")`,
     ].join(', '),
   }
+
+  if (styleCache.size > 400) styleCache.clear()
+  styleCache.set(seed, style)
+  return style
 }
 
 /**
@@ -127,6 +139,17 @@ export function generatePlayerBackground(
     radial-gradient(ellipse at 80% 90%, ${secondary}44 0%, transparent 55%),
     radial-gradient(ellipse at 50% 50%, ${background} 0%, ${background} 100%)
   `.trim()
+}
+
+/**
+ * Some providers serve the same cover at several sizes selected by a path
+ * segment (`/480x480.jpg`). Small rows only need a thumbnail, so swap the
+ * segment instead of downloading a large image for a 40px tile.
+ */
+export function artworkAtWidth(src: string | undefined, cssWidth: number): string | undefined {
+  if (!src) return undefined
+  const target = cssWidth <= 120 ? '150x150' : cssWidth <= 400 ? '480x480' : '1000x1000'
+  return src.replace(/\/(150x150|480x480|1000x1000)\.(jpg|jpeg|png|webp)/i, `/${target}.$2`)
 }
 
 export function initials(value: string): string {

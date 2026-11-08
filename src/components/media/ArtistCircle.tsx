@@ -34,6 +34,7 @@ export function ArtistCircle({ artist, size = 'md', subtitle = 'Artist', classNa
           src={artist.artwork}
           alt={`${artist.name} artwork`}
           rounded="rounded-full"
+          requestWidth={96}
           className="h-full w-full"
         >
           <span

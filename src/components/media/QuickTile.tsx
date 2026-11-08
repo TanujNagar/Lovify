@@ -31,6 +31,7 @@ export function QuickTile({ item, className }: QuickTileProps) {
         src={item.artwork}
         alt=""
         rounded="rounded-none"
+        requestWidth={56}
         className="h-14 w-14 flex-shrink-0"
       >
         <span className="absolute inset-0 flex items-center justify-center bg-surface-container-lowest/25">

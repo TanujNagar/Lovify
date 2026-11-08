@@ -107,6 +107,7 @@ export function TrackRow({
           src={track.artwork}
           alt=""
           rounded="rounded-lg"
+          requestWidth={48}
           className={cn(
             'flex-shrink-0',
             compact ? 'h-10 w-10' : 'h-12 w-12',

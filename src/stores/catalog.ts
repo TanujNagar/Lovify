@@ -23,8 +23,8 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
     set({ loading: true, error: null })
 
     const [trending, albums] = await Promise.allSettled([
-      getTrendingTracks(30),
-      getFeaturedAlbums(12),
+      getTrendingTracks(20),
+      getFeaturedAlbums(8),
     ])
 
     const nextTrending = trending.status === 'fulfilled' ? trending.value : []
