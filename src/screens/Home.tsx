@@ -6,6 +6,7 @@ import { MixCard } from '@/components/media/MixCard'
 import { QuickTile } from '@/components/media/QuickTile'
 import { TrackRow } from '@/components/media/TrackRow'
 import { Chip } from '@/components/ui/Chip'
+import { LazySection } from '@/components/ui/LazySection'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { homeFilters } from '@/data/editorial'
 import { greetingForHour } from '@/lib/format'
@@ -254,91 +255,99 @@ export function HomeScreen() {
         )}
 
         {recommendations.madeForYou.length > 0 && (
-          <section className="defer-render pb-7">
-            <div className="px-margin">
-              <SectionHeader
-                title="Made for you"
-                subtitle={
-                  playHistory.length || history.length
-                    ? 'Local mixes shaped by what you actually play'
-                    : 'Trending collections from free sources'
-                }
-                actionLabel="See all"
-                actionTo="/explore"
-              />
-            </div>
-            <div className="flex gap-4 overflow-x-auto px-margin pb-2 no-scrollbar">
-              {recommendations.madeForYou.map((mix) => (
-                <MixCard key={mix.id} mix={mix} />
-              ))}
-            </div>
-          </section>
+          <LazySection minHeight={300} className="pb-7">
+            <section>
+              <div className="px-margin">
+                <SectionHeader
+                  title="Made for you"
+                  subtitle={
+                    playHistory.length || history.length
+                      ? 'Local mixes shaped by what you actually play'
+                      : 'Trending collections from free sources'
+                  }
+                  actionLabel="See all"
+                  actionTo="/explore"
+                />
+              </div>
+              <div className="flex gap-4 overflow-x-auto px-margin pb-2 no-scrollbar">
+                {recommendations.madeForYou.map((mix) => (
+                  <MixCard key={mix.id} mix={mix} />
+                ))}
+              </div>
+            </section>
+          </LazySection>
         )}
 
         {featured.length > 0 && (
-          <section className="defer-render pb-7">
-            <div className="px-margin">
-              <SectionHeader
-                title="Fresh collections"
-                subtitle="New releases from free sources"
-                actionLabel="Explore"
-                actionTo="/explore"
-              />
-            </div>
-            <div className="flex gap-4 overflow-x-auto px-margin pb-2 no-scrollbar">
-              {featured.map((item) => (
-                <AlbumCard key={item.id} item={item} label="New" />
-              ))}
-            </div>
-          </section>
+          <LazySection minHeight={300} className="pb-7">
+            <section>
+              <div className="px-margin">
+                <SectionHeader
+                  title="Fresh collections"
+                  subtitle="New releases from free sources"
+                  actionLabel="Explore"
+                  actionTo="/explore"
+                />
+              </div>
+              <div className="flex gap-4 overflow-x-auto px-margin pb-2 no-scrollbar">
+                {featured.map((item) => (
+                  <AlbumCard key={item.id} item={item} label="New" />
+                ))}
+              </div>
+            </section>
+          </LazySection>
         )}
 
         {recent.length > 0 && (
-          <section className="defer-render pb-7">
-            <div className="px-margin">
-              <SectionHeader title="Recently played" subtitle="From your local listening history">
-                <Link
-                  to="/library"
-                  aria-label="Open your library"
-                  className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-container text-on-surface-variant transition-colors hover:text-on-surface"
-                >
-                  <Icon name="history" />
-                </Link>
-              </SectionHeader>
-            </div>
-            <div className="flex gap-3 overflow-x-auto px-margin no-scrollbar">
-              {recent.map((item) => (
-                <AlbumCard key={item.id} item={item} size="sm" showPlay={false} />
-              ))}
-            </div>
-          </section>
+          <LazySection minHeight={260} className="pb-7">
+            <section>
+              <div className="px-margin">
+                <SectionHeader title="Recently played" subtitle="From your local listening history">
+                  <Link
+                    to="/library"
+                    aria-label="Open your library"
+                    className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-container text-on-surface-variant transition-colors hover:text-on-surface"
+                  >
+                    <Icon name="history" />
+                  </Link>
+                </SectionHeader>
+              </div>
+              <div className="flex gap-3 overflow-x-auto px-margin no-scrollbar">
+                {recent.map((item) => (
+                  <AlbumCard key={item.id} item={item} size="sm" showPlay={false} />
+                ))}
+              </div>
+            </section>
+          </LazySection>
         )}
 
         {recommended.length > 0 && (
-          <section className="defer-render px-margin pb-10">
-            <SectionHeader
-              title={filter === 'all' || filter === 'music' ? 'Tracks you might love' : 'For this mood'}
-              subtitle={
-                playHistory.length || history.length
-                  ? 'Picked by your local listening signals'
-                  : 'Picked from free music sources'
-              }
-            >
-              <button
-                type="button"
-                onClick={shuffle}
-                className="flex h-11 items-center gap-1 rounded-full bg-surface-container px-3 font-label-md text-label-md text-on-surface-variant transition-colors hover:text-on-surface"
+          <LazySection minHeight={420} className="px-margin pb-10">
+            <section>
+              <SectionHeader
+                title={filter === 'all' || filter === 'music' ? 'Tracks you might love' : 'For this mood'}
+                subtitle={
+                  playHistory.length || history.length
+                    ? 'Picked by your local listening signals'
+                    : 'Picked from free music sources'
+                }
               >
-                <Icon name="shuffle" size="sm" />
-                <span>Shuffle</span>
-              </button>
-            </SectionHeader>
-            <div className="flex flex-col gap-1.5">
-              {recommended.slice(0, 6).map((track) => (
-                <TrackRow key={track.id} track={track} queue={recommended} />
-              ))}
-            </div>
-          </section>
+                <button
+                  type="button"
+                  onClick={shuffle}
+                  className="flex h-11 items-center gap-1 rounded-full bg-surface-container px-3 font-label-md text-label-md text-on-surface-variant transition-colors hover:text-on-surface"
+                >
+                  <Icon name="shuffle" size="sm" />
+                  <span>Shuffle</span>
+                </button>
+              </SectionHeader>
+              <div className="flex flex-col gap-1.5">
+                {recommended.slice(0, 6).map((track) => (
+                  <TrackRow key={track.id} track={track} queue={recommended} />
+                ))}
+              </div>
+            </section>
+          </LazySection>
         )}
       </div>
     </div>
