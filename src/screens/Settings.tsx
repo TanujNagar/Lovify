@@ -678,6 +678,7 @@ export function SettingsScreen() {
             ref={backupInputRef}
             type="file"
             accept="application/json,.json"
+            aria-label="Choose a Lovify backup file to import"
             className="sr-only"
             onChange={(event) => {
               const file = event.target.files?.[0]
