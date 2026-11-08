@@ -171,6 +171,12 @@ export async function getTracksByArtist(artistId: string): Promise<Track[]> {
   return db.tracks.where('artistId').equals(artistId).toArray()
 }
 
+/** Local catalogue snapshot used by recommendations and offline browsing. */
+export async function getAllCachedTracks(limit = 400): Promise<Track[]> {
+  const rows = await db.tracks.toArray()
+  return rows.slice(0, limit)
+}
+
 /* -------------------------------------------------------------------------- */
 /* Playlists                                                                   */
 /* -------------------------------------------------------------------------- */
@@ -368,6 +374,25 @@ export async function getHistory(limit = 50): Promise<HistoryEntry[]> {
     seen.add(row.trackId)
     entries.push({ track, playedAt: row.playedAt })
     if (entries.length >= limit) break
+  }
+
+  return entries
+}
+
+/**
+ * Every play row in reverse chronological order, including repeats. Profile
+ * statistics need the repeats; the visual history list uses getHistory().
+ */
+export async function getPlayHistory(limit = 2000): Promise<HistoryEntry[]> {
+  const rows = await db.history.orderBy('playedAt').reverse().limit(limit).toArray()
+  const trackIds = Array.from(new Set(rows.map((row) => row.trackId)))
+  const tracks = await getTracksByIds(trackIds)
+  const byId = new Map(tracks.map((track) => [track.id, track]))
+  const entries: HistoryEntry[] = []
+
+  for (const row of rows) {
+    const track = byId.get(row.trackId)
+    if (track) entries.push({ track, playedAt: row.playedAt })
   }
 
   return entries

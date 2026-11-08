@@ -1,74 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from '@/components/brand/Icon'
 import { ArtistCircle } from '@/components/media/ArtistCircle'
 import { initials } from '@/lib/artwork'
-import { getHistoryStats } from '@/lib/db'
+import { getPlayHistory } from '@/lib/db'
+import {
+  computeListeningStats,
+  formatHour,
+  formatListeningTime,
+} from '@/lib/stats'
 import { useLibraryStore } from '@/stores/library'
+import { useProfileStore } from '@/stores/profile'
 import { useSourcesStore } from '@/stores/sources'
 import { useThemeStore } from '@/stores/theme'
 import { useUiStore } from '@/stores/ui'
 import type { Artist, HistoryEntry } from '@/types/music'
 
 type TopArtist = Artist & { plays: number }
-
-function topArtistsFrom(history: HistoryEntry[]): TopArtist[] {
-  const map = new Map<string, TopArtist>()
-  for (const entry of history) {
-    const { track } = entry
-    const existing = map.get(track.artistId)
-    if (existing) {
-      existing.plays += 1
-    } else {
-      map.set(track.artistId, {
-        id: track.artistId,
-        provider: track.provider,
-        providerId: track.artistId,
-        name: track.artist,
-        artwork: track.artwork,
-        plays: 1,
-      })
-    }
-  }
-  return Array.from(map.values())
-    .sort((a, b) => b.plays - a.plays)
-    .slice(0, 6)
-}
-
-function topGenreFrom(history: HistoryEntry[]): { name: string; share: string } | null {
-  const counts = new Map<string, number>()
-  let total = 0
-  for (const entry of history) {
-    const genre = entry.track.genre?.trim()
-    if (!genre) continue
-    counts.set(genre, (counts.get(genre) ?? 0) + 1)
-    total += 1
-  }
-  if (!counts.size || total === 0) return null
-  const [name, count] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]
-  return { name, share: `${Math.round((count / total) * 100)}% of tagged plays` }
-}
-
-function peakRhythmFrom(history: HistoryEntry[]): { label: string; window: string } | null {
-  if (!history.length) return null
-  const counts = new Map<number, number>()
-  for (const entry of history) {
-    const hour = new Date(entry.playedAt).getHours()
-    counts.set(hour, (counts.get(hour) ?? 0) + 1)
-  }
-  const [hour] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]
-  const end = (hour + 3) % 24
-  const pad = (value: number) => `${String(value).padStart(2, '0')}:00`
-  const label =
-    hour >= 22 || hour < 5
-      ? 'Night owl'
-      : hour < 12
-        ? 'Morning listener'
-        : hour < 17
-          ? 'Afternoon drift'
-          : 'Evening calm'
-  return { label, window: `${pad(hour)} – ${pad(end)}` }
-}
 
 export function ProfileScreen() {
   const playlists = useLibraryStore((state) => state.playlists)
@@ -82,28 +30,87 @@ export function ProfileScreen() {
   const jamendo = useSourcesStore((state) => state.jamendo)
   const refreshSources = useSourcesStore((state) => state.refresh)
 
-  const [stats, setStats] = useState({ plays: 0, minutes: 0 })
+  const avatar = useProfileStore((state) => state.avatar)
+  const avatarSaving = useProfileStore((state) => state.saving)
+  const avatarError = useProfileStore((state) => state.error)
+  const loadProfile = useProfileStore((state) => state.load)
+  const uploadAvatar = useProfileStore((state) => state.upload)
+  const removeAvatar = useProfileStore((state) => state.remove)
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [playHistory, setPlayHistory] = useState<HistoryEntry[]>([])
 
   useEffect(() => {
     if (!loaded) void loadLibrary()
     void refreshSources()
-  }, [loadLibrary, loaded, refreshSources])
+    void loadProfile()
+  }, [loadLibrary, loadProfile, loaded, refreshSources])
+
+  const historyVersion = history[0]?.playedAt ?? 0
 
   useEffect(() => {
     let active = true
-    void getHistoryStats()
+    void getPlayHistory()
       .then((next) => {
-        if (active) setStats(next)
+        if (active) setPlayHistory(next)
       })
       .catch(() => undefined)
     return () => {
       active = false
     }
-  }, [history.length])
+  }, [history.length, historyVersion])
 
-  const topArtists = useMemo(() => topArtistsFrom(history), [history])
-  const topGenre = useMemo(() => topGenreFrom(history), [history])
-  const peakRhythm = useMemo(() => peakRhythmFrom(history), [history])
+  const stats = useMemo(
+    () => computeListeningStats(playHistory.length ? playHistory : history),
+    [history, playHistory],
+  )
+
+  const topArtists = useMemo<TopArtist[]>(
+    () =>
+      stats.topArtists.map((artist) => ({
+        id: artist.artistId,
+        provider: artist.provider ?? 'audius',
+        providerId: artist.artistId,
+        name: artist.name,
+        artwork: artist.artwork,
+        plays: artist.plays,
+      })),
+    [stats.topArtists],
+  )
+
+  const topGenre = stats.topGenre
+  const peakRhythm = stats.peakWindow
+    ? {
+        label: stats.peakWindow.label,
+        window: `${formatHour(stats.peakWindow.start)} – ${formatHour(stats.peakWindow.end)}`,
+      }
+    : null
+
+  const peakHourSet = useMemo(() => {
+    if (!stats.peakWindow) return new Set<number>()
+    return new Set([
+      stats.peakWindow.start,
+      (stats.peakWindow.start + 1) % 24,
+      (stats.peakWindow.start + 2) % 24,
+    ])
+  }, [stats.peakWindow])
+
+  const maxHourly = Math.max(1, ...stats.hourly)
+
+  const chooseAvatar = async (file: File | undefined) => {
+    if (!file) return
+    const saved = await uploadAvatar(file)
+    showToast(
+      saved
+        ? 'Profile photo saved on this device.'
+        : (useProfileStore.getState().error ?? 'That photo could not be saved.'),
+    )
+  }
+
+  const clearAvatar = async () => {
+    await removeAvatar()
+    showToast('Profile photo removed from this device.')
+  }
 
   const shareProfile = async () => {
     const url = window.location.origin
@@ -142,14 +149,38 @@ export function ProfileScreen() {
         <div className="pointer-events-none absolute -top-14 left-1/2 h-48 w-48 -translate-x-1/2 rounded-full bg-primary-container/10 blur-3xl" />
 
         <div className="relative mb-4">
-          <div className="rounded-full bg-gradient-to-tr from-primary-container via-tertiary-container to-secondary p-1 shadow-[0_0_24px_rgba(249,87,115,0.35)]">
-            <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-secondary-container via-surface-container-highest to-surface-container-lowest text-3xl font-bold tracking-tight text-white">
-              {initials('Elena Vance')}
+          <input
+            ref={fileInputRef}
+            id="profile-avatar-input"
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              void chooseAvatar(file)
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            aria-label={avatar ? 'Change profile photo' : 'Upload profile photo'}
+            disabled={avatarSaving}
+            className="group relative block rounded-full focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container disabled:opacity-70"
+          >
+            <div className="rounded-full bg-gradient-to-tr from-primary-container via-tertiary-container to-secondary p-1 shadow-[0_0_24px_rgba(249,87,115,0.35)]">
+              <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-secondary-container via-surface-container-highest to-surface-container-lowest text-3xl font-bold tracking-tight text-white">
+                {avatar ? (
+                  <img src={avatar} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  initials('Elena Vance')
+                )}
+              </div>
             </div>
-          </div>
-          <div className="absolute bottom-0 right-0 flex h-7 w-7 items-center justify-center rounded-full bg-surface-container-high shadow-md">
-            <Icon name="verified" filled size="sm" className="text-primary" />
-          </div>
+            <span className="absolute bottom-0 right-0 flex h-7 w-7 items-center justify-center rounded-full bg-surface-container-high text-primary shadow-md transition-colors group-hover:bg-primary-container group-hover:text-on-primary-container">
+              <Icon name={avatarSaving ? 'hourglass_top' : 'photo_camera'} filled size="sm" />
+            </span>
+          </button>
         </div>
 
         <h2 className="font-headline-md text-headline-md tracking-tight text-on-surface">
@@ -158,6 +189,21 @@ export function ProfileScreen() {
         <p className="mt-0.5 font-body-md text-body-md text-on-surface-variant">
           @elenavance · On this device
         </p>
+        {avatar && (
+          <button
+            type="button"
+            onClick={() => void clearAvatar()}
+            disabled={avatarSaving}
+            className="mt-1 font-caption text-caption text-on-surface-variant underline-offset-4 hover:text-primary hover:underline disabled:opacity-50"
+          >
+            Remove photo
+          </button>
+        )}
+        {avatarError && (
+          <p role="status" className="mt-1 font-caption text-caption text-error">
+            {avatarError}
+          </p>
+        )}
 
         <div className="mt-space-sm inline-flex items-center gap-1.5 rounded-full bg-surface-container-high px-3 py-1 shadow-sm">
           <Icon name="auto_awesome" filled size="sm" className="text-primary" />
@@ -180,7 +226,7 @@ export function ProfileScreen() {
           </div>
           <div className="h-1 w-1 rounded-full bg-surface-variant" />
           <div className="flex flex-col items-center">
-            <span className="font-title-md text-title-md text-on-surface">{topArtists.length}</span>
+            <span className="font-title-md text-title-md text-on-surface">{stats.uniqueArtists}</span>
             <span className="font-caption text-caption text-on-surface-variant">Artists</span>
           </div>
         </div>
@@ -217,7 +263,7 @@ export function ProfileScreen() {
           </div>
           <div>
             <div className="font-title-lg text-title-lg tracking-tight text-on-surface">
-              {stats.minutes.toLocaleString('en')}
+              {formatListeningTime(stats.minutes)}
             </div>
             <div className="mt-2 flex h-4 items-end gap-1" aria-hidden="true">
               <div className="h-2 flex-1 rounded-full bg-surface-variant" />
@@ -239,7 +285,9 @@ export function ProfileScreen() {
               {topGenre?.name ?? 'Still discovering'}
             </div>
             <div className="mt-1 font-caption text-caption text-on-surface-variant">
-              {topGenre?.share ?? 'Tagged genres appear after a few plays'}
+              {topGenre
+                ? `${topGenre.share}% of ${topGenre.plays === 1 ? '1 tagged play' : `${topGenre.plays} tagged plays`}`
+                : 'Tagged genres appear after a few plays'}
             </div>
           </div>
         </div>
@@ -274,6 +322,50 @@ export function ProfileScreen() {
           </div>
         </div>
       </div>
+
+      <section className="mb-6 rounded-xl bg-surface-container p-3.5 shadow-sm">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="font-title-md text-title-md text-on-surface">Listening rhythm</h3>
+          <span className="font-caption text-caption text-on-surface-variant">
+            {stats.plays > 0 ? 'Local time · all-time' : 'Waiting for your first play'}
+          </span>
+        </div>
+        <div
+          className="flex h-24 items-end gap-0.5"
+          role="img"
+          aria-label={
+            stats.peakWindow
+              ? `Plays by hour of day. Peak window ${formatHour(stats.peakWindow.start)} to ${formatHour(stats.peakWindow.end)}.`
+              : 'Plays by hour of day. No plays recorded yet.'
+          }
+        >
+          {stats.hourly.map((count, hour) => {
+            const height = count > 0 ? Math.max(8, Math.round((count / maxHourly) * 100)) : 3
+            const isPeak = peakHourSet.has(hour)
+            return (
+              <div
+                key={hour}
+                className="flex h-full flex-1 flex-col justify-end"
+                title={`${formatHour(hour)} · ${count} ${count === 1 ? 'play' : 'plays'}`}
+              >
+                <div
+                  className={`w-full rounded-t-sm transition-colors ${
+                    isPeak ? 'bg-primary-container' : count > 0 ? 'bg-primary-container/40' : 'bg-surface-variant'
+                  }`}
+                  style={{ height: `${height}%` }}
+                />
+              </div>
+            )
+          })}
+        </div>
+        <div className="mt-1 flex justify-between font-caption text-caption text-on-surface-variant">
+          <span>00:00</span>
+          <span>06:00</span>
+          <span>12:00</span>
+          <span>18:00</span>
+          <span>23:00</span>
+        </div>
+      </section>
 
       <section className="mb-6">
         <div className="mb-2 flex items-center justify-between">
