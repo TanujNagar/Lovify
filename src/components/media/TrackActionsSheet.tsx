@@ -2,6 +2,8 @@ import { useNavigate } from 'react-router-dom'
 import { Icon } from '@/components/brand/Icon'
 import { Artwork } from '@/components/media/Artwork'
 import { Sheet } from '@/components/ui/Sheet'
+import { canDownloadTrack, downloadUnavailableReason } from '@/lib/downloads'
+import { useDownloadsStore } from '@/stores/downloads'
 import { useLibraryStore } from '@/stores/library'
 import { usePlayerStore } from '@/stores/player'
 import { useUiStore } from '@/stores/ui'
@@ -59,8 +61,20 @@ export function TrackActionsSheet() {
   const addToQueue = usePlayerStore((state) => state.addToQueue)
   const currentTrackId = usePlayerStore((state) => state.currentTrack?.id)
 
+  const downloadTrack = useDownloadsStore((state) => state.download)
+  const removeDownload = useDownloadsStore((state) => state.remove)
+  const downloaded = useDownloadsStore((state) =>
+    Boolean(track && state.tracks.some((item) => item.id === track.id)),
+  )
+  const downloading = useDownloadsStore((state) =>
+    Boolean(track && state.busy.includes(track.id)),
+  )
+
   const open = Boolean(track)
   if (!track) return null
+
+  const canDownload = canDownloadTrack(track)
+  const downloadNote = downloadUnavailableReason(track)
 
   const liked = likedIds.includes(track.id)
   const contextPlaylist = playlistId
@@ -83,6 +97,19 @@ export function TrackActionsSheet() {
       return
     }
     act('Added to playlist.', () => addTrackToPlaylist(targetPlaylistId, track.id))
+  }
+
+  const handleDownload = async () => {
+    if (downloaded) {
+      await removeDownload(track.id)
+      showToast('Removed from offline downloads.')
+      close()
+      return
+    }
+    await downloadTrack(track)
+    const latest = useDownloadsStore.getState()
+    showToast(latest.error ?? 'Saved for offline listening.')
+    close()
   }
 
   return (
@@ -125,6 +152,24 @@ export function TrackActionsSheet() {
           icon="queue_music"
           label="Add to queue"
           onClick={() => act('Added to the queue.', () => addToQueue(track))}
+        />
+        <ActionRow
+          icon={downloaded ? 'download_done' : 'download'}
+          label={
+            downloaded
+              ? 'Remove offline download'
+              : downloading
+                ? 'Saving for offline…'
+                : 'Download for offline'
+          }
+          detail={
+            downloaded
+              ? 'Available without a connection'
+              : (downloadNote ?? 'Free-source tracks only')
+          }
+          disabled={!canDownload || downloading}
+          active={downloaded}
+          onClick={() => void handleDownload()}
         />
         <ActionRow
           icon="favorite"

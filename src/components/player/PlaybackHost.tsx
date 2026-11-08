@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { YouTubeStage } from '@/components/player/YouTubeStage'
+import { getDownloadedAudioUrl } from '@/lib/downloads'
 import {
   bindMediaSession,
   updateMediaMetadata,
@@ -38,28 +39,45 @@ export function PlaybackHost() {
 
   useEffect(() => {
     let cancelled = false
+    let objectUrl: string | null = null
     if (!currentTrack) {
       setSource(null)
       return
     }
 
     setSource(null)
-    void getPlaybackSource(currentTrack)
-      .then((next) => {
-        if (!cancelled) setSource(next)
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        const message =
-          error instanceof ProviderError
-            ? error.message
-            : 'This track is not available right now.'
-        usePlayerStore.getState().setError(message)
-        showToast(message)
-      })
+
+    const resolve = async () => {
+      // An offline copy wins over the network: it is instant and keeps working
+      // while the browser is disconnected.
+      const offline = await getDownloadedAudioUrl(currentTrack.id).catch(() => null)
+      if (cancelled) {
+        if (offline) URL.revokeObjectURL(offline)
+        return
+      }
+      if (offline) {
+        objectUrl = offline
+        setSource({ kind: 'audio', url: offline })
+        return
+      }
+
+      const next = await getPlaybackSource(currentTrack)
+      if (!cancelled) setSource(next)
+    }
+
+    void resolve().catch((error: unknown) => {
+      if (cancelled) return
+      const message =
+        error instanceof ProviderError
+          ? error.message
+          : 'This track is not available right now.'
+      usePlayerStore.getState().setError(message)
+      showToast(message)
+    })
 
     return () => {
       cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [currentTrack, showToast])
 

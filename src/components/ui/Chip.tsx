@@ -6,12 +6,13 @@ type ChipProps = {
   children: ReactNode
   active?: boolean
   icon?: string
+  count?: number
   onClick?: () => void
   className?: string
   ariaLabel?: string
 }
 
-export function Chip({ children, active, icon, onClick, className, ariaLabel }: ChipProps) {
+export function Chip({ children, active, icon, count, onClick, className, ariaLabel }: ChipProps) {
   return (
     <button
       type="button"
@@ -34,6 +35,16 @@ export function Chip({ children, active, icon, onClick, className, ariaLabel }: 
         />
       )}
       <span>{children}</span>
+      {typeof count === 'number' && count > 0 && (
+        <span
+          className={cn(
+            'ml-0.5 rounded-full px-1.5 py-0.5 font-caption text-caption leading-none',
+            active ? 'bg-on-primary-container/15 text-on-primary-container' : 'bg-surface-container-high text-on-surface-variant',
+          )}
+        >
+          {count}
+        </span>
+      )}
     </button>
   )
 }

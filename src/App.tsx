@@ -5,6 +5,7 @@ import { Toaster } from '@/components/layout/Toaster'
 import { PlaybackHost } from '@/components/player/PlaybackHost'
 import { restorePlayer, startPlayerPersistence } from '@/lib/player-persistence'
 import { HomeScreen } from '@/screens/Home'
+import { useDownloadsStore } from '@/stores/downloads'
 import { useLibraryStore } from '@/stores/library'
 import { useSourcesStore } from '@/stores/sources'
 
@@ -90,6 +91,7 @@ function AppEffects() {
       if (active) stopPersistence = startPlayerPersistence()
     })
     void useSourcesStore.getState().refresh()
+    void useDownloadsStore.getState().load()
 
     // Local library hydration is not needed for the first paint. Let the
     // browser settle before opening IndexedDB so it never delays interaction.
