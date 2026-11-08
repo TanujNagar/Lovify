@@ -37,7 +37,9 @@
       #boot {
         position: fixed;
         inset: 0;
-        z-index: -1;
+        /* Must sit above the body background, otherwise the opaque app
+           background hides the shell and the first paint waits for React. */
+        z-index: 1;
         display: flex;
         flex-direction: column;
         padding: 0 20px;

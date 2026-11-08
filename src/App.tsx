@@ -1,15 +1,17 @@
-import { Suspense, lazy, useEffect } from 'react'
+import { Suspense, lazy, useEffect, useLayoutEffect, useState } from 'react'
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
 import { Toaster } from '@/components/layout/Toaster'
 import { PlaybackHost } from '@/components/player/PlaybackHost'
 import { restorePlayer, startPlayerPersistence } from '@/lib/player-persistence'
+import { runIdleSteps } from '@/lib/idle'
 import { HomeScreen } from '@/screens/Home'
 import { useDownloadsStore } from '@/stores/downloads'
 import { useLibraryStore } from '@/stores/library'
 import { useSourcesStore } from '@/stores/sources'
 import { useSharedPlaylistRestore } from '@/hooks/useSharedPlaylistRestore'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
+import { useUiStore } from '@/stores/ui'
 
 const CollectionDetailScreen = lazy(() =>
   import('@/screens/CollectionDetail').then((module) => ({
@@ -82,6 +84,28 @@ function RouteFallback() {
   )
 }
 
+function GlobalSheets() {
+  const createPlaylistOpen = useUiStore((state) => state.createPlaylistOpen)
+  const trackMenuOpen = useUiStore((state) => state.trackMenuTrack !== null)
+  const [createLoaded, setCreateLoaded] = useState(createPlaylistOpen)
+  const [trackMenuLoaded, setTrackMenuLoaded] = useState(trackMenuOpen)
+
+  useEffect(() => {
+    if (createPlaylistOpen) setCreateLoaded(true)
+  }, [createPlaylistOpen])
+
+  useEffect(() => {
+    if (trackMenuOpen) setTrackMenuLoaded(true)
+  }, [trackMenuOpen])
+
+  return (
+    <Suspense fallback={null}>
+      {createLoaded && <CreatePlaylistSheet />}
+      {trackMenuLoaded && <TrackActionsSheet />}
+    </Suspense>
+  )
+}
+
 function AppEffects() {
   const location = useLocation()
   useSharedPlaylistRestore()
@@ -90,28 +114,26 @@ function AppEffects() {
     let active = true
     let stopPersistence: (() => void) | undefined
 
-    void restorePlayer().then(() => {
-      if (active) stopPersistence = startPlayerPersistence()
-    })
-    void useSourcesStore.getState().refresh()
-    void useDownloadsStore.getState().load()
-
-    // Local library hydration is not needed for the first paint. Let the
-    // browser settle before opening IndexedDB so it never delays interaction.
-    const load = () => void useLibraryStore.getState().load()
-    let idleId: number | undefined
-    let timer: number | undefined
-    if (typeof window.requestIdleCallback === 'function') {
-      idleId = window.requestIdleCallback(load, { timeout: 1200 })
-    } else {
-      timer = window.setTimeout(load, 200)
-    }
+    // Everything below only needs local storage, so keep it off the critical
+    // path. Each step runs in its own task so IndexedDB work never becomes one
+    // long blocking task while the user is already interacting.
+    const idle = runIdleSteps(
+      [
+        () =>
+          void restorePlayer().then(() => {
+            if (active) stopPersistence = startPlayerPersistence()
+          }),
+        () => void useLibraryStore.getState().load(),
+        () => void useDownloadsStore.getState().load(),
+        () => void useSourcesStore.getState().refresh(),
+      ],
+      800,
+    )
 
     return () => {
       active = false
       stopPersistence?.()
-      if (idleId !== undefined) window.cancelIdleCallback(idleId)
-      if (timer !== undefined) window.clearTimeout(timer)
+      idle.cancel()
     }
   }, [])
 
@@ -121,9 +143,10 @@ function AppEffects() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [location.pathname])
 
-  useEffect(() => {
-    // The static boot shell in index.html only exists to make the first paint
-    // immediate. Once React has painted, drop it from the DOM.
+  useLayoutEffect(() => {
+    // The static boot shell in index.html paints instantly so the first
+    // contentful paint does not wait for React. Drop it in a layout effect so
+    // it is gone before the browser paints the real app (no double paint).
     document.getElementById('boot')?.remove()
   }, [])
 
@@ -135,10 +158,7 @@ export default function App() {
     <BrowserRouter>
       <AppEffects />
       <PlaybackHost />
-      <Suspense fallback={null}>
-        <CreatePlaylistSheet />
-        <TrackActionsSheet />
-      </Suspense>
+      <GlobalSheets />
       <Toaster />
       <ErrorBoundary>
         <Suspense fallback={<RouteFallback />}>
