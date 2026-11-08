@@ -1,9 +1,11 @@
 import { useNavigate, Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { Icon } from '@/components/brand/Icon'
 import { Artwork } from '@/components/media/Artwork'
 import { PlayerControls } from '@/components/player/PlayerControls'
 import { SeekSlider } from '@/components/player/SeekSlider'
 import { cn } from '@/lib/cn'
+import { extractArtworkPalette, generatePlayerBackground } from '@/lib/artwork'
 import { PROVIDER_LABELS } from '@/lib/providers/types'
 import { useLibraryStore } from '@/stores/library'
 import { usePlayerStore } from '@/stores/player'
@@ -26,6 +28,19 @@ export function PlayerScreen() {
   const toggleLike = useLibraryStore((state) => state.toggleLike)
   const openTrackMenu = useUiStore((state) => state.openTrackMenu)
 
+  const [bgGradient, setBgGradient] = useState<string>('')
+
+  useEffect(() => {
+    if (!track?.artwork) return
+    let active = true
+    void extractArtworkPalette(track.artwork, track.id).then((palette) => {
+      if (active) setBgGradient(generatePlayerBackground(palette))
+    })
+    return () => {
+      active = false
+    }
+  }, [track?.id, track?.artwork])
+
   if (!track) {
     return (
       <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-surface px-6 text-center">
@@ -45,9 +60,18 @@ export function PlayerScreen() {
   const provider = PROVIDER_LABELS[track.provider]
 
   return (
-    <div className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-surface">
-      <div className="pointer-events-none absolute -left-24 top-16 h-72 w-72 rounded-full ambient-a" />
-      <div className="pointer-events-none absolute -right-20 bottom-10 h-80 w-80 rounded-full ambient-b" />
+    <div
+      className="relative flex min-h-[100dvh] flex-col overflow-hidden"
+      style={{ background: bgGradient || 'rgb(var(--c-surface))' }}
+    >
+      {bgGradient ? (
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-surface/90 via-surface/60 to-surface" />
+      ) : (
+        <>
+          <div className="pointer-events-none absolute -left-24 top-16 h-72 w-72 rounded-full ambient-a" />
+          <div className="pointer-events-none absolute -right-20 bottom-10 h-80 w-80 rounded-full ambient-b" />
+        </>
+      )}
 
       <header className="relative z-10 flex items-center justify-between px-4 pb-2 pt-safe">
         <button
