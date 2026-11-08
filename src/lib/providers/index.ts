@@ -3,15 +3,6 @@ import {
   readSearchCache,
   writeSearchCache,
 } from '@/lib/cache'
-import {
-  cacheTracks,
-  getLikedTrackIds,
-  getPlaylistById,
-  getTrackById,
-  getTracksByAlbum,
-  getTracksByArtist,
-  getTracksByIds,
-} from '@/lib/db'
 import { audiusProvider } from '@/lib/providers/audius'
 import { jamendoProvider } from '@/lib/providers/jamendo'
 import {
@@ -43,6 +34,8 @@ const providers: Record<ProviderId, MusicProvider> = {
   audius: audiusProvider,
   jamendo: jamendoProvider,
 }
+
+const loadDb = () => import('@/lib/db')
 
 const searchOrder: MusicProvider[] = [youtubeProvider, audiusProvider, jamendoProvider]
 
@@ -202,6 +195,7 @@ export async function searchMusic(
     )
   }
 
+  const { cacheTracks } = await loadDb()
   await cacheTracks(results.tracks)
 
   const status = await probeYouTubeStatus().catch((): YouTubeSourceStatus | null => null)
@@ -268,6 +262,7 @@ export async function getTrendingTracks(limit = 24): Promise<Track[]> {
   }
 
   const tracks = dedupeTracks(interleave(groups)).slice(0, limit)
+  const { cacheTracks } = await loadDb()
   await cacheTracks(tracks)
   return tracks
 }
@@ -294,6 +289,7 @@ export async function getFeaturedAlbums(limit = 10): Promise<Album[]> {
 }
 
 export async function getProviderTrack(id: string): Promise<Track | null> {
+  const { getTrackById, cacheTracks } = await loadDb()
   const cached = await getTrackById(id)
   if (cached) return cached
   const providerId = providerFromId(id)
@@ -320,6 +316,7 @@ function albumFromTracks(id: string, tracks: Track[]): Album {
 }
 
 export async function getProviderAlbum(id: string): Promise<Album | null> {
+  const { getTracksByAlbum, cacheTracks } = await loadDb()
   const cachedTracks = await getTracksByAlbum(id)
   if (cachedTracks.length) return albumFromTracks(id, cachedTracks)
 
@@ -338,6 +335,7 @@ export async function getProviderAlbum(id: string): Promise<Album | null> {
 }
 
 export async function getProviderArtist(id: string): Promise<Artist | null> {
+  const { getTracksByArtist } = await loadDb()
   const cachedTracks = await getTracksByArtist(id)
   const first = cachedTracks[0]
   if (first) {
@@ -356,13 +354,16 @@ export async function getProviderArtist(id: string): Promise<Artist | null> {
 }
 
 export async function getArtistTracks(id: string, limit = 50): Promise<Track[]> {
+  const { getTracksByArtist, cacheTracks } = await loadDb()
   const cachedTracks = await getTracksByArtist(id)
   if (cachedTracks.length) return cachedTracks.slice(0, limit)
 
   const providerId = providerFromId(id)
   if (!providerId) return []
   const tracks = await getProvider(providerId).getArtistTracks(id, { limit })
-  if (tracks.length) await cacheTracks(tracks)
+  if (tracks.length) {
+    await cacheTracks(tracks)
+  }
   return tracks
 }
 
@@ -373,6 +374,7 @@ export async function resolveCollectionTracks(item: CollectionItem): Promise<Tra
   }
 
   if (item.kind === 'playlist') {
+    const { getPlaylistById, getLikedTrackIds, getTracksByIds } = await loadDb()
     const playlist = await getPlaylistById(item.id)
     const ids =
       playlist?.system === 'liked'
@@ -384,6 +386,7 @@ export async function resolveCollectionTracks(item: CollectionItem): Promise<Tra
   if (item.kind === 'album') {
     const album = await getProviderAlbum(item.id)
     if (!album) return []
+    const { getTracksByIds } = await loadDb()
     const tracks = await getTracksByIds(album.trackIds)
     return tracks
   }

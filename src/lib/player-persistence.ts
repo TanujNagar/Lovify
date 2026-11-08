@@ -1,10 +1,11 @@
-import { cacheTracks, getSetting, setSetting } from '@/lib/db'
 import {
   playerSnapshot,
   usePlayerStore,
   type PlayerHydration,
 } from '@/stores/player'
 import type { PlayerContext, RepeatMode, Track } from '@/types/music'
+
+const loadDb = () => import('@/lib/db')
 
 const PLAYER_SETTING = 'playerState'
 const SAVE_DELAY = 450
@@ -43,7 +44,7 @@ export function schedulePlayerSave(): void {
     const state = usePlayerStore.getState()
     if (!state.currentTrack) return
     lastSignature = persistenceSignature(state)
-    void setSetting(PLAYER_SETTING, playerSnapshot(state))
+    void loadDb().then(({ setSetting }) => setSetting(PLAYER_SETTING, playerSnapshot(state)))
   }, SAVE_DELAY)
 }
 
@@ -106,6 +107,7 @@ function validHydration(value: PlayerHydration | undefined): PlayerHydration | n
  */
 export async function restorePlayer(): Promise<void> {
   try {
+    const { cacheTracks, getSetting } = await loadDb()
     const saved = validHydration(await getSetting<PlayerHydration>(PLAYER_SETTING))
     if (!saved?.currentTrack) return
     await cacheTracks([saved.currentTrack, ...saved.queue])
@@ -116,5 +118,6 @@ export async function restorePlayer(): Promise<void> {
 }
 
 export async function clearSavedPlayer(): Promise<void> {
+  const { setSetting } = await loadDb()
   await setSetting(PLAYER_SETTING, null)
 }

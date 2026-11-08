@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { db, type DownloadRow } from '@/lib/db'
+import type { DownloadRow } from '@/lib/db'
 import {
   downloadTrackAudio,
   getDownloadStorage,
@@ -51,6 +51,7 @@ export const useDownloadsStore = create<DownloadsState>((set, get) => ({
   refresh: async () => {
     set({ loading: true })
     try {
+      const { db } = await import('@/lib/db')
       const [rows, tracks, storage] = await Promise.all([
         db.downloads.toArray(),
         getDownloadedTracks(),

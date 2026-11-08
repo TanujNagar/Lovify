@@ -1,5 +1,7 @@
-import { db, getStorageSummary, type DownloadRow } from '@/lib/db'
+import type { DownloadRow } from '@/lib/db'
 import type { Track } from '@/types/music'
+
+const loadDb = () => import('@/lib/db')
 
 /**
  * Offline audio is kept in the browser Cache Storage, not in IndexedDB.
@@ -27,10 +29,12 @@ export function downloadUnavailableReason(track: Track): string | null {
 }
 
 export async function getDownloadRow(trackId: string): Promise<DownloadRow | undefined> {
+  const { db } = await loadDb()
   return db.downloads.get(trackId)
 }
 
 export async function getReadyDownloadIds(): Promise<string[]> {
+  const { db } = await loadDb()
   const rows = await db.downloads.where('status').equals('ready').toArray()
   return rows.map((row) => row.trackId)
 }
@@ -42,6 +46,7 @@ export async function getDownloadedTrackIds(): Promise<string[]> {
 export async function getDownloadedTracks(): Promise<Track[]> {
   const ids = await getReadyDownloadIds()
   if (!ids.length) return []
+  const { db } = await loadDb()
   const rows = await db.tracks.bulkGet(ids)
   return rows.filter((row): row is Track => Boolean(row))
 }
@@ -65,6 +70,7 @@ export async function getDownloadedAudioUrl(trackId: string): Promise<string | n
 }
 
 async function writeDownloadRow(row: DownloadRow): Promise<void> {
+  const { db } = await loadDb()
   await db.downloads.put(row)
 }
 
@@ -79,6 +85,7 @@ export async function downloadTrackAudio(track: Track): Promise<DownloadRow> {
     throw new Error(reason ?? 'This track cannot be downloaded.')
   }
 
+  const { db } = await loadDb()
   const existing = await db.downloads.get(track.id)
   if (existing?.status === 'ready') return existing
 
@@ -145,6 +152,7 @@ export async function removeDownloadedTrack(trackId: string): Promise<void> {
       // The cache may be unavailable in private browsing; the row still goes.
     }
   }
+  const { db } = await loadDb()
   await db.downloads.delete(trackId)
 }
 
@@ -157,6 +165,7 @@ export type DownloadStorage = {
 }
 
 export async function getDownloadStorage(): Promise<DownloadStorage> {
+  const { getStorageSummary } = await loadDb()
   const summary = await getStorageSummary()
   let quota = 0
   let usage = summary.bytes

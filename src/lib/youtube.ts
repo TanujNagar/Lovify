@@ -1,8 +1,9 @@
-import { getSetting, removeSetting, setSetting } from '@/lib/db'
-
 export const YOUTUBE_KEY_SETTING = 'youtubeApiKey'
 export const YOUTUBE_KEY_HELP_URL =
   'https://developers.google.com/youtube/v3/getting-started'
+
+// Keep Dexie out of the first-paint bundle. Settings loads it on demand.
+const loadDb = () => import('@/lib/db')
 
 const YOUTUBE_API = 'https://www.googleapis.com/youtube/v3'
 const TEST_VIDEO_ID = 'dQw4w9WgXcQ'
@@ -21,14 +22,17 @@ export function maskKey(key: string): string {
 }
 
 export async function getYouTubeKey(): Promise<string | undefined> {
+  const { getSetting } = await loadDb()
   return getSetting<string>(YOUTUBE_KEY_SETTING)
 }
 
 export async function saveYouTubeKey(key: string): Promise<void> {
+  const { setSetting } = await loadDb()
   await setSetting(YOUTUBE_KEY_SETTING, key.trim())
 }
 
 export async function removeYouTubeKey(): Promise<void> {
+  const { removeSetting } = await loadDb()
   await removeSetting(YOUTUBE_KEY_SETTING)
 }
 

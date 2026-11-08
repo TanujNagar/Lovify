@@ -1,4 +1,3 @@
-import { getSetting } from '@/lib/db'
 import { fetchJson } from '@/lib/providers/http'
 import {
   ProviderError,
@@ -62,6 +61,8 @@ type JamendoArtistJson = {
 
 let clientIdPromise: Promise<string | undefined> | null = null
 
+const loadDb = () => import('@/lib/db')
+
 function envClientId(): string | undefined {
   const value = import.meta.env.VITE_JAMENDO_CLIENT_ID as string | undefined
   return value?.trim() || undefined
@@ -72,9 +73,9 @@ export async function getJamendoClientId(): Promise<string | undefined> {
   const fromEnv = envClientId()
   if (fromEnv) return fromEnv
   if (!clientIdPromise) {
-    clientIdPromise = getSetting<string>(JAMENDO_CLIENT_ID_SETTING).then(
-      (value) => value?.trim() || undefined,
-    )
+    clientIdPromise = loadDb()
+      .then(({ getSetting }) => getSetting<string>(JAMENDO_CLIENT_ID_SETTING))
+      .then((value) => value?.trim() || undefined)
   }
   return clientIdPromise
 }

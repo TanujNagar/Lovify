@@ -8,7 +8,6 @@ import { TrackRow } from '@/components/media/TrackRow'
 import { Chip } from '@/components/ui/Chip'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { homeFilters } from '@/data/editorial'
-import { getAllCachedTracks, getPlayHistory } from '@/lib/db'
 import { greetingForHour } from '@/lib/format'
 import { buildRecommendations } from '@/lib/recommendations'
 import { useCatalogStore } from '@/stores/catalog'
@@ -67,7 +66,10 @@ export function HomeScreen() {
 
   useEffect(() => {
     let active = true
-    void Promise.all([getPlayHistory(600), getAllCachedTracks(300)])
+    void import('@/lib/db')
+      .then(({ getAllCachedTracks, getPlayHistory }) =>
+        Promise.all([getPlayHistory(600), getAllCachedTracks(300)]),
+      )
       .then(([nextHistory, nextTracks]) => {
         if (!active) return
         setPlayHistory(nextHistory)

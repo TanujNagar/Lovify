@@ -1,6 +1,9 @@
-import { db, getSetting, setSetting } from '@/lib/db'
 import { normalizeText } from '@/lib/providers/types'
 import type { ProviderId, SearchResults } from '@/types/music'
+
+// Dexie is a sizeable dependency. Load it only when a cached search or the
+// quota counter is actually used, never on the first paint.
+const loadDb = () => import('@/lib/db')
 
 export const SEARCH_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -34,6 +37,7 @@ export async function readSearchCache(
   query: string,
   now = Date.now(),
 ): Promise<SearchResults | null> {
+  const { db } = await loadDb()
   const key = searchCacheKey(provider, query)
   const row = await db.searchCache.get(key)
   if (!row) return null
@@ -53,6 +57,7 @@ export async function writeSearchCache(
   now = Date.now(),
   ttl = SEARCH_TTL_MS,
 ): Promise<void> {
+  const { db } = await loadDb()
   const key = searchCacheKey(provider, query)
   await db.searchCache.put({
     key,
@@ -87,6 +92,7 @@ export type YouTubeUsage = {
 }
 
 export async function getYouTubeUsage(date = new Date()): Promise<YouTubeUsage> {
+  const { db, getSetting } = await loadDb()
   const row = await db.usage.get(usageKey(date))
   const units = Math.min(YOUTUBE_DAILY_UNITS, Math.max(0, row?.count ?? 0))
   const blockedDay = await getSetting<string>(QUOTA_BLOCKED_SETTING)
@@ -100,6 +106,7 @@ export async function getYouTubeUsage(date = new Date()): Promise<YouTubeUsage> 
 }
 
 export async function addYouTubeUsage(units: number, date = new Date()): Promise<YouTubeUsage> {
+  const { db } = await loadDb()
   const key = usageKey(date)
   const row = await db.usage.get(key)
   const next = Math.min(YOUTUBE_DAILY_UNITS, (row?.count ?? 0) + units)
@@ -108,11 +115,13 @@ export async function addYouTubeUsage(units: number, date = new Date()): Promise
 }
 
 export async function isYouTubeBlocked(date = new Date()): Promise<boolean> {
+  const { getSetting } = await loadDb()
   const blockedDay = await getSetting<string>(QUOTA_BLOCKED_SETTING)
   return blockedDay === dayKey(date)
 }
 
 export async function blockYouTubeForToday(date = new Date()): Promise<void> {
+  const { setSetting } = await loadDb()
   await setSetting(QUOTA_BLOCKED_SETTING, dayKey(date))
 }
 

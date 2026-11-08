@@ -5,7 +5,6 @@ import {
   blockYouTubeForToday,
   isYouTubeBlocked,
 } from '@/lib/cache'
-import { getTracksByArtist } from '@/lib/db'
 import {
   ProviderError,
   dedupeArtists,
@@ -21,6 +20,7 @@ import type { Artist, PlaybackSource, SearchResults, Track } from '@/types/music
 import { getYouTubeKey } from '@/lib/youtube'
 
 const API = 'https://www.googleapis.com/youtube/v3'
+const loadDb = () => import('@/lib/db')
 const PROVIDER = 'youtube' as const
 
 type YouTubeThumbnails = {
@@ -359,6 +359,7 @@ export const youtubeProvider: MusicProvider = {
   },
 
   async getArtist(id: string) {
+    const { getTracksByArtist } = await loadDb()
     const tracks = await getTracksByArtist(id)
     const first = tracks[0]
     if (!first) return null
@@ -372,6 +373,7 @@ export const youtubeProvider: MusicProvider = {
   },
 
   async getArtistTracks(id: string, options?: ProviderSearchOptions) {
+    const { getTracksByArtist } = await loadDb()
     const tracks = await getTracksByArtist(id)
     return tracks.slice(0, options?.limit ?? 50)
   },
