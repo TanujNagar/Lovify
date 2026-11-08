@@ -4,6 +4,7 @@ import { Icon } from '@/components/brand/Icon'
 import { Artwork } from '@/components/media/Artwork'
 import { TrackRow } from '@/components/media/TrackRow'
 import { PlaylistManageSheet } from '@/components/playlist/PlaylistManageSheet'
+import { SortableTrackList } from '@/components/playlist/SortableTrackList'
 import { cn } from '@/lib/cn'
 import { getTracksByIds } from '@/lib/db'
 import { totalDuration } from '@/lib/format'
@@ -34,6 +35,7 @@ export function CollectionDetailScreen() {
   const playlists = useLibraryStore((state) => state.playlists)
   const likedIds = useLibraryStore((state) => state.likedIds)
   const loaded = useLibraryStore((state) => state.loaded)
+  const movePlaylistTrack = useLibraryStore((state) => state.movePlaylistTrack)
 
   const [data, setData] = useState<DetailData | null>(null)
   const [playlist, setPlaylist] = useState<Playlist | null>(null)
@@ -188,6 +190,24 @@ export function CollectionDetailScreen() {
     showToast('Shuffling this collection.')
   }
 
+  const canReorder = kind === 'playlist' && playlist !== null && playlist.system !== 'liked'
+
+  const handleReorder = (from: number, to: number) => {
+    if (!playlist) return
+    // Reorder locally first so the row lands under the finger immediately,
+    // then persist the full order in IndexedDB.
+    setData((current) => {
+      if (!current) return current
+      const next = [...current.items]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return { ...current, items: next }
+    })
+    void movePlaylistTrack(playlist.id, from, to).catch(() => {
+      showToast('Could not save the new order. Check that storage is available.')
+    })
+  }
+
   const share = async () => {
     try {
       if (navigator.share) {
@@ -294,25 +314,43 @@ export function CollectionDetailScreen() {
       </div>
 
       <div className="mt-6 flex items-center justify-between">
-        <h2 className="font-title-lg text-title-lg text-on-surface">
-          {kind === 'artist' ? 'Popular tracks' : 'Track list'}
-        </h2>
+        <div>
+          <h2 className="font-title-lg text-title-lg text-on-surface">
+            {kind === 'artist' ? 'Popular tracks' : 'Track list'}
+          </h2>
+          {canReorder && items.length > 1 && (
+            <p className="mt-0.5 font-caption text-caption text-on-surface-variant">
+              Drag the handle to reorder. Keyboard: focus a handle, press Space, move with the
+              arrow keys, then Space again.
+            </p>
+          )}
+        </div>
         <span className="font-caption text-caption text-on-surface-variant">
           {items.length} tracks · {totalDuration(items.map((track) => track.duration))}
         </span>
       </div>
 
-      <div className="mt-2 flex flex-col gap-1.5">
-        {items.map((track, index) => (
-          <TrackRow
-            key={`${track.id}-${index}`}
-            track={track}
-            queue={items}
-            showIndex={index + 1}
-            showAlbum={kind !== 'album'}
-            playlistId={kind === 'playlist' && playlist?.system !== 'liked' ? playlist?.id : null}
+      <div className="mt-2">
+        {canReorder ? (
+          <SortableTrackList
+            tracks={items}
+            onReorder={handleReorder}
+            playlistId={playlist?.id ?? null}
           />
-        ))}
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {items.map((track, index) => (
+              <TrackRow
+                key={`${track.id}-${index}`}
+                track={track}
+                queue={items}
+                showIndex={index + 1}
+                showAlbum={kind !== 'album'}
+                playlistId={kind === 'playlist' && playlist?.system !== 'liked' ? playlist?.id : null}
+              />
+            ))}
+          </div>
+        )}
         {items.length === 0 && (
           <div className="rounded-xl bg-surface-container-low p-6 text-center">
             <p className="font-title-md text-title-md text-on-surface">No tracks yet</p>
