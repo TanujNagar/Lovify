@@ -196,8 +196,8 @@ export function PlayerScreen() {
         {track.provider === 'youtube' && (
           <p className="mt-4 flex items-start gap-2 rounded-xl bg-surface-container-low p-3 font-body-md text-body-md text-on-surface-variant">
             <Icon name="info" size="sm" className="mt-1 flex-shrink-0 text-primary" />
-            YouTube plays through the official visible player. EQ and visualizer are available for
-            free-source tracks.
+            YouTube plays through the official visible player, so EQ and visualizer controls stay
+            off for this track.
           </p>
         )}
 

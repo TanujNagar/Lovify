@@ -11,3 +11,4 @@ lighthouse-report*.json
 lighthouse-settings.json
 *.tsbuildinfo
 build-debug.log
+.wrangler
